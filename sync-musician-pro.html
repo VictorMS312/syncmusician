@@ -1,0 +1,1386 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Sync Musician Pro</title>
+<meta name="theme-color" content="#0a0a0a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0a;
+  --surface: #111111;
+  --surface2: #1a1a1a;
+  --border: #252525;
+  --border2: #333;
+  --text: #e8e8e8;
+  --text-dim: #666;
+  --text-muted: #444;
+  --accent: #f59e0b;
+  --accent2: #10b981;
+  --danger: #ef4444;
+  --blue: #3b82f6;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-ui: 'Syne', sans-serif;
+  --header-h: 56px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100%; width: 100%;
+  background: var(--bg); color: var(--text);
+  font-family: var(--font-ui);
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+/* ── SCREENS ── */
+.screen { display: none; width: 100%; height: 100%; }
+.screen.active { display: flex; flex-direction: column; }
+
+/* ── SETUP ── */
+#screen-setup {
+  align-items: center; justify-content: center;
+  padding: 28px 22px; background: var(--bg);
+  position: relative; overflow-y: auto;
+}
+#screen-setup::before {
+  content: ''; position: absolute;
+  top: -120px; left: -120px; width: 400px; height: 400px;
+  background: radial-gradient(circle, rgba(245,158,11,0.07) 0%, transparent 70%);
+  pointer-events: none;
+}
+#screen-setup::after {
+  content: ''; position: absolute;
+  bottom: -80px; right: -80px; width: 320px; height: 320px;
+  background: radial-gradient(circle, rgba(16,185,129,0.06) 0%, transparent 70%);
+  pointer-events: none;
+}
+.setup-logo {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 6px; position: relative; z-index: 1;
+}
+.logo-icon {
+  width: 42px; height: 42px; background: var(--accent);
+  border-radius: 11px; display: flex; align-items: center; justify-content: center;
+  font-size: 21px;
+}
+.logo-text { font-size: 21px; font-weight: 800; letter-spacing: -0.5px; }
+.logo-text span { color: var(--accent); }
+.setup-version {
+  font-size: 10px; color: var(--text-dim); letter-spacing: 2.5px;
+  text-transform: uppercase; font-family: var(--font-mono);
+  margin-bottom: 36px; position: relative; z-index: 1;
+}
+.setup-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 18px; padding: 22px 20px;
+  width: 100%; max-width: 360px; margin-bottom: 14px;
+  position: relative; z-index: 1;
+}
+.setup-card-label {
+  font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--text-dim); font-family: var(--font-mono); margin-bottom: 14px;
+}
+.btn-leader {
+  width: 100%; padding: 15px; background: var(--accent); color: #000;
+  border: none; border-radius: 11px; font-family: var(--font-ui);
+  font-size: 14px; font-weight: 800; letter-spacing: 0.5px; cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+.btn-leader:active { transform: scale(0.98); opacity: 0.85; }
+.divider {
+  display: flex; align-items: center; gap: 12px; margin: 18px 0;
+  color: var(--text-muted); font-size: 11px; font-family: var(--font-mono);
+}
+.divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.input-row { display: flex; gap: 8px; margin-bottom: 10px; }
+.input-field {
+  flex: 1; background: var(--bg); border: 1px solid var(--border2);
+  border-radius: 10px; color: var(--text); font-family: var(--font-mono);
+  font-size: 14px; padding: 11px 14px; outline: none;
+  transition: border-color 0.2s; width: 100%;
+}
+.input-field:focus { border-color: var(--accent); }
+.input-field::placeholder { color: var(--text-muted); }
+.btn-scan {
+  width: 46px; height: 46px; flex-shrink: 0;
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: 10px; color: var(--text); font-size: 19px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.btn-musician {
+  width: 100%; padding: 15px; background: var(--accent2); color: #000;
+  border: none; border-radius: 11px; font-family: var(--font-ui);
+  font-size: 14px; font-weight: 800; cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+.btn-musician:active { transform: scale(0.98); opacity: 0.85; }
+#reader-container { width: 100%; margin-top: 12px; border-radius: 10px; overflow: hidden; display: none; }
+#reader { width: 100%; }
+
+/* ── APP HEADER ── */
+#screen-app { background: var(--bg); height: 100vh; }
+.app-header {
+  height: var(--header-h); background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 14px; flex-shrink: 0; z-index: 10;
+}
+.header-left { display: flex; align-items: center; gap: 9px; }
+.header-right { display: flex; align-items: center; gap: 7px; }
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #555; flex-shrink: 0;
+  transition: background 0.4s, box-shadow 0.4s;
+}
+.status-dot.leader   { background: var(--accent);  box-shadow: 0 0 7px var(--accent); }
+.status-dot.musician { background: var(--accent2); box-shadow: 0 0 7px var(--accent2); }
+.status-dot.offline  { background: var(--danger);  box-shadow: 0 0 7px var(--danger); }
+#status-text { font-size: 11px; font-family: var(--font-mono); color: var(--text-dim); letter-spacing: 0.5px; }
+.peer-badge {
+  font-size: 10px; font-family: var(--font-mono); color: var(--accent2);
+  background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.2);
+  border-radius: 20px; padding: 2px 8px; display: none;
+}
+.btn-hdr {
+  background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--text); border-radius: 7px; padding: 6px 10px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 1px; cursor: pointer; text-transform: uppercase; white-space: nowrap;
+  transition: background 0.12s;
+}
+.btn-hdr:active { background: var(--border2); }
+.btn-hdr.qr-btn { background: #f0f0f0; color: #000; border-color: #f0f0f0; }
+.btn-hdr.bkp-btn { font-size: 15px; padding: 5px 8px; }
+
+/* ── CONTROLS BAR ── */
+#controls-bar {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 0 10px; display: none; align-items: center;
+  justify-content: space-between; gap: 6px; height: 50px; flex-shrink: 0;
+}
+.ctrl-group { display: flex; gap: 5px; align-items: center; }
+.btn-ctrl {
+  padding: 7px 12px; border: none; border-radius: 8px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.5px; cursor: pointer; white-space: nowrap;
+}
+.btn-ctrl:active { opacity: 0.7; }
+.btn-ctrl.del  { background: rgba(239,68,68,0.13); color: var(--danger); border: 1px solid rgba(239,68,68,0.2); }
+.btn-ctrl.edit { background: rgba(59,130,246,0.13); color: var(--blue); border: 1px solid rgba(59,130,246,0.2); }
+.btn-ctrl.tone { background: rgba(245,158,11,0.13); color: var(--accent); border: 1px solid rgba(245,158,11,0.2); }
+.btn-ctrl.scrl { background: rgba(16,185,129,0.13); color: var(--accent2); border: 1px solid rgba(16,185,129,0.2); }
+
+/* ── TONE GRID ── */
+#tone-grid {
+  display: none; grid-template-columns: repeat(6,1fr);
+  gap: 5px; padding: 10px; background: var(--surface2);
+  border-bottom: 1px solid rgba(245,158,11,0.3); flex-shrink: 0;
+}
+.btn-tone {
+  padding: 10px 4px; background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 8px; color: var(--text); font-family: var(--font-mono);
+  font-size: 13px; font-weight: 700; cursor: pointer; text-align: center;
+  transition: all 0.12s;
+}
+.btn-tone.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
+/* ── TONE BAR ── */
+#tone-bar {
+  display: none; align-items: center; justify-content: space-between;
+  padding: 6px 14px; background: var(--surface);
+  border-bottom: 1px solid var(--border); flex-shrink: 0; position: relative;
+  gap: 8px;
+}
+.tone-info { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); flex-shrink: 0; }
+.tone-current { color: var(--accent); font-weight: 700; font-size: 15px; margin-right: 4px; }
+.btn-reset-tone {
+  padding: 5px 10px; font-size: 10px;
+  background: rgba(245,158,11,0.1); color: var(--accent);
+  border: 1px solid rgba(245,158,11,0.2);
+  border-radius: 7px; font-family: var(--font-mono); font-weight: 700;
+  cursor: pointer; display: none; flex-shrink: 0; white-space: nowrap;
+}
+
+/* ── MEDLEY BUBBLE ── */
+#medley-bubble {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--surface2);
+  border: 1px solid rgba(16,185,129,0.3);
+  border-radius: 20px; padding: 5px 10px 5px 9px;
+  cursor: pointer;
+  /* fixed width so text always clips inside */
+  width: 148px; flex-shrink: 0;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.6s ease;
+}
+#medley-bubble.visible {
+  opacity: 1; pointer-events: auto;
+  animation: medleyPulse 2.8s ease-in-out infinite;
+}
+@keyframes medleyPulse {
+  0%, 100% { border-color: rgba(16,185,129,0.25); box-shadow: none; }
+  50%       { border-color: rgba(16,185,129,0.65); box-shadow: 0 0 9px rgba(16,185,129,0.15); }
+}
+.medley-icon { font-size: 12px; flex-shrink: 0; }
+/* text column: clips the title and fades right edge */
+.medley-text-col {
+  flex: 1; min-width: 0; overflow: hidden; position: relative;
+}
+.medley-text-col::after {
+  content: '';
+  position: absolute; right: 0; top: 0; bottom: 0; width: 22px;
+  background: linear-gradient(to right, transparent, var(--surface2));
+  pointer-events: none;
+}
+.medley-label { font-size: 9px; font-family: var(--font-mono); color: var(--accent2); letter-spacing: 1px; text-transform: uppercase; line-height: 1; }
+.medley-title {
+  font-size: 11px; font-weight: 700; color: var(--text);
+  white-space: nowrap; line-height: 1.4;
+  display: inline-block;
+}
+
+/* ── SCROLL PANEL ── */
+#scroll-panel {
+  display: none; align-items: center; gap: 12px;
+  padding: 10px 14px; background: var(--surface2);
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.btn-play {
+  padding: 7px 18px; border: none; border-radius: 8px;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  letter-spacing: 1px; cursor: pointer;
+  background: var(--accent2); color: #000; min-width: 72px;
+  transition: background 0.2s;
+}
+.btn-play.playing { background: var(--danger); color: #fff; }
+input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor: pointer; outline: none; }
+.speed-lbl { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); min-width: 24px; }
+
+/* ── CONTENT AREA ── */
+#content-area {
+  flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; background: var(--bg);
+}
+#content-area::-webkit-scrollbar { display: none; }
+
+/* ── FOLDERS ── */
+.view-header {
+  padding: 18px 16px 10px; display: flex;
+  align-items: center; justify-content: space-between;
+}
+.view-title { font-size: 19px; font-weight: 800; letter-spacing: -0.4px; }
+.folders-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 10px; padding: 6px 14px 80px;
+}
+.folder-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 15px; padding: 16px 10px; text-align: center;
+  cursor: pointer; transition: border-color 0.15s, background 0.15s;
+  word-break: break-word; min-height: 105px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+}
+.folder-card:active { background: var(--surface2); }
+.folder-emoji { font-size: 34px; line-height: 1; }
+.folder-name  { font-size: 12px; font-weight: 700; }
+.folder-count { font-size: 10px; color: var(--text-dim); font-family: var(--font-mono); }
+.folder-card.new { border-style: dashed; border-color: var(--border2); background: transparent; }
+.folder-card.new .folder-emoji { font-size: 26px; color: var(--text-muted); }
+.folder-card.new .folder-name  { color: var(--text-muted); }
+
+/* ── SONGS ── */
+.back-btn {
+  background: none; border: none; color: var(--accent);
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  cursor: pointer; padding: 0; letter-spacing: 0.5px;
+}
+.songs-list { padding: 6px 14px 100px; display: flex; flex-direction: column; gap: 7px; }
+.song-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 13px; padding: 15px 16px; cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.song-card:active { background: var(--surface2); }
+.song-title { font-size: 14px; font-weight: 700; }
+.song-meta  { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+.song-badge {
+  background: rgba(245,158,11,0.13); color: var(--accent);
+  border: 1px solid rgba(245,158,11,0.2);
+  border-radius: 6px; padding: 3px 8px;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700; flex-shrink: 0;
+}
+
+/* ── CIFRA ── */
+#cifra-container {
+  font-family: var(--font-mono); white-space: pre;
+  line-height: 1.75; font-size: 15px; color: #ccc;
+  padding: 18px 15px 600px; display: none;
+}
+.chord { color: var(--accent); font-weight: 700; }
+
+/* ── MEDLEY LINE (injected inline between cifra sections) ── */
+#medley-line {
+  display: block;
+  white-space: normal;       /* don't inherit pre from parent */
+  height: 20px;
+  line-height: 20px;
+  text-align: center;
+  position: relative;
+  margin: 10px 0 8px;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+  pointer-events: none;
+}
+#medley-line::before {      /* the horizontal line */
+  content: '';
+  position: absolute;
+  top: 50%; left: 0; right: 0;
+  height: 1px;
+  background: var(--accent2);
+}
+#medley-line::after {       /* the title label sitting on the line */
+  content: attr(data-title);
+  position: relative; z-index: 1;
+  font-family: var(--font-mono);
+  font-size: 9px; font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--accent2);
+  background: var(--bg);
+  padding: 0 10px;
+  text-transform: uppercase;
+}
+#medley-line.visible { opacity: 1; }
+
+/* ── EDIT ── */
+#edit-textarea {
+  display: none; width: 100%;
+  background: var(--bg); color: var(--text);
+  font-family: var(--font-mono); font-size: 14px;
+  line-height: 1.7; border: none; outline: none;
+  resize: none; padding: 18px 15px 200px;
+  caret-color: var(--accent); min-height: 100%;
+}
+
+/* ── FABs ── */
+.fab {
+  position: fixed; border: none; cursor: pointer;
+  display: none; align-items: center; justify-content: center;
+  z-index: 500; transition: transform 0.12s;
+}
+.fab:active { transform: scale(0.91) !important; }
+#fab-add {
+  bottom: 22px; right: 18px; width: 52px; height: 52px;
+  border-radius: 50%; background: var(--blue); color: white; font-size: 27px;
+  box-shadow: 0 4px 18px rgba(59,130,246,0.4);
+}
+#fab-home {
+  bottom: 22px; right: 18px; width: 52px; height: 52px;
+  border-radius: 50%; background: var(--surface2);
+  border: 1px solid var(--border2); color: var(--text); font-size: 21px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+}
+#fab-back {
+  bottom: 22px; left: 16px; padding: 11px 16px;
+  border-radius: 26px; background: var(--surface2);
+  border: 1px solid var(--border2); color: var(--text);
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.5px; gap: 5px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+}
+#fab-save {
+  bottom: 22px; right: 18px; padding: 11px 18px;
+  border-radius: 26px; background: var(--accent2); border: none; color: #000;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  letter-spacing: 1px; gap: 5px;
+  box-shadow: 0 4px 16px rgba(16,185,129,0.35);
+}
+
+/* ── QR MODAL ── */
+#modal-qr {
+  position: fixed; top: calc(var(--header-h) + 8px); right: 14px;
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 16px; padding: 16px;
+  display: none; flex-direction: column; align-items: center; gap: 10px;
+  z-index: 900; box-shadow: 0 10px 40px rgba(0,0,0,0.75); min-width: 200px;
+}
+#modal-qr.open { display: flex; }
+#qr-img { background: white; border-radius: 8px; padding: 6px; width: 170px; height: 170px; }
+.qr-id-display {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);
+  text-align: center; word-break: break-all; max-width: 170px;
+  background: var(--bg); border-radius: 8px; padding: 8px;
+  border: 1px solid var(--border); cursor: pointer;
+}
+.qr-hint { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); }
+.btn-qr-close {
+  width: 100%; padding: 8px; background: var(--surface2);
+  border: 1px solid var(--border2); border-radius: 8px;
+  color: var(--text); font-family: var(--font-mono); font-size: 11px; cursor: pointer;
+}
+
+/* ── LIBRARY MODAL ── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.82);
+  z-index: 1000; display: none; align-items: flex-end; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal-sheet {
+  background: var(--surface); border-radius: 22px 22px 0 0;
+  border: 1px solid var(--border); border-bottom: none;
+  width: 100%; max-width: 500px; max-height: 82vh;
+  display: flex; flex-direction: column;
+  animation: slideUp 0.3s cubic-bezier(0.4,0,0.2,1);
+}
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.modal-handle { width: 38px; height: 4px; background: var(--border2); border-radius: 2px; margin: 13px auto 9px; flex-shrink: 0; }
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 2px 18px 14px; flex-shrink: 0; }
+.modal-title  { font-size: 16px; font-weight: 800; }
+.modal-close  { width: 29px; height: 29px; background: var(--surface2); border: 1px solid var(--border2); border-radius: 50%; color: var(--text-dim); font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.modal-body   { padding: 0 18px 14px; display: flex; flex-direction: column; gap: 9px; flex-shrink: 0; }
+.btn-import   { width: 100%; padding: 13px; background: var(--accent2); color: #000; border: none; border-radius: 11px; font-family: var(--font-ui); font-size: 13px; font-weight: 800; cursor: pointer; transition: opacity 0.2s; }
+.btn-import:disabled { opacity: 0.45; }
+.lib-scroll   { flex: 1; overflow-y: auto; border-top: 1px solid var(--border); padding: 12px 18px 28px; scrollbar-width: none; }
+.lib-scroll::-webkit-scrollbar { display: none; }
+.lib-section-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dim); font-family: var(--font-mono); margin-bottom: 8px; }
+.lib-item { display: flex; align-items: center; justify-content: space-between; padding: 11px 0; border-bottom: 1px solid var(--border); gap: 10px; }
+.lib-item:last-child { border-bottom: none; }
+.lib-item-title { font-size: 13px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn-lib-add { background: rgba(59,130,246,0.13); color: var(--blue); border: 1px solid rgba(59,130,246,0.2); border-radius: 7px; padding: 5px 11px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; cursor: pointer; }
+.lib-check { font-size: 15px; color: var(--accent2); }
+
+/* ── BACKUP MODAL ── */
+#modal-backup {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  background: var(--surface); border: 1px solid var(--border2); border-radius: 18px;
+  padding: 22px; width: 88%; max-width: 320px;
+  display: none; flex-direction: column; gap: 11px;
+  z-index: 2000; box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+}
+#modal-backup.open { display: flex; }
+.bkp-title { font-size: 15px; font-weight: 800; }
+.bkp-sub   { font-size: 12px; color: var(--text-dim); line-height: 1.55; }
+.btn-bkp   { width: 100%; padding: 12px; border: none; border-radius: 10px; font-family: var(--font-ui); font-size: 13px; font-weight: 700; cursor: pointer; }
+.btn-bkp.exp { background: var(--blue); color: white; }
+.btn-bkp.imp { background: var(--surface2); color: var(--text); border: 1px solid var(--border2); }
+.btn-bkp.cls { background: none; color: var(--text-muted); border: 1px solid var(--border); margin-top: 2px; }
+
+/* ── TOAST ── */
+#toast {
+  position: fixed; top: calc(var(--header-h) + 10px); left: 50%;
+  transform: translateX(-50%); background: var(--surface2);
+  border: 1px solid var(--border2); border-radius: 22px; padding: 9px 18px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--text);
+  z-index: 9999; opacity: 0; transition: opacity 0.25s;
+  pointer-events: none; white-space: nowrap;
+}
+#toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- ══ SETUP ══ -->
+<div id="screen-setup" class="screen active">
+  <div class="setup-logo">
+    <div class="logo-icon">🎵</div>
+    <div class="logo-text">Sync<span>Musician</span></div>
+  </div>
+  <div class="setup-version">Pro · v8.1</div>
+
+  <div class="setup-card">
+    <div class="setup-card-label">Você comanda o show?</div>
+    <button class="btn-leader" onclick="initRole('S')">SOU O LÍDER</button>
+  </div>
+
+  <div class="setup-card">
+    <div class="setup-card-label">Entrar como Músico</div>
+    <div class="input-row">
+      <input type="text" id="join-id" class="input-field"
+             placeholder="Cole o ID do Líder aqui"
+             autocomplete="off" spellcheck="false"
+             autocorrect="off" autocapitalize="none">
+      <button class="btn-scan" onclick="startScanner()" title="Escanear QR Code">📷</button>
+    </div>
+    <div id="reader-container"><div id="reader"></div></div>
+    <button class="btn-musician" onclick="initRole('M')">CONECTAR COMO MÚSICO</button>
+  </div>
+</div>
+
+<!-- ══ APP ══ -->
+<div id="screen-app" class="screen">
+  <div class="app-header">
+    <div class="header-left">
+      <div id="status-dot" class="status-dot"></div>
+      <div id="status-text">—</div>
+      <div id="peer-badge" class="peer-badge"></div>
+    </div>
+    <div class="header-right" id="leader-controls" style="display:none;">
+      <button class="btn-hdr" onclick="copyID()">COPIAR ID</button>
+      <button class="btn-hdr qr-btn" onclick="toggleQR()">QR</button>
+      <button class="btn-hdr bkp-btn" onclick="openBackup()" title="Backup">💾</button>
+    </div>
+  </div>
+
+  <div id="controls-bar">
+    <div class="ctrl-group">
+      <button class="btn-ctrl del"  onclick="excluirMusica()">✕ APAGAR</button>
+      <button class="btn-ctrl edit" id="btn-edit-toggle" onclick="toggleEditMode()">✎ EDITAR</button>
+    </div>
+    <div class="ctrl-group">
+      <button class="btn-ctrl tone" onclick="toggleToneGrid()">♪ TOM</button>
+      <button class="btn-ctrl scrl" onclick="toggleScrollPanel()">⟳ SCROLL</button>
+    </div>
+  </div>
+
+  <div id="tone-grid"></div>
+
+  <div id="tone-bar">
+    <div class="tone-info">
+      TOM: <span class="tone-current" id="curr-tone">C</span>
+      <span style="color:var(--text-muted);font-size:10px;">(orig: <span id="orig-tone">C</span>)</span>
+    </div>
+    <button class="btn-reset-tone" id="btn-reset-tone" onclick="resetTone()">ORIGINAL</button>
+    <div id="medley-bubble" onclick="jumpToMedley()">
+      <span class="medley-icon">▶</span>
+      <div class="medley-text-col">
+        <div class="medley-label">Próxima</div>
+        <div class="medley-title" id="medley-title">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="scroll-panel">
+    <button id="btn-play" class="btn-play" onclick="toggleScroll()">PLAY</button>
+    <input type="range" id="scroll-speed" min="1" max="100" value="20" oninput="updateSpeedLbl()">
+    <span class="speed-lbl" id="speed-lbl">20</span>
+  </div>
+
+  <div id="content-area">
+    <div id="dynamic-content"></div>
+    <div id="cifra-container"></div>
+    <textarea id="edit-textarea" spellcheck="false"></textarea>
+  </div>
+</div>
+
+<!-- ══ QR MODAL ══ -->
+<div id="modal-qr">
+  <img id="qr-img" src="" alt="QR Code">
+  <div class="qr-id-display" id="qr-id-text" onclick="copyID()" title="Toque para copiar">—</div>
+  <div class="qr-hint">Toque no ID para copiar</div>
+  <button class="btn-qr-close" onclick="toggleQR()">FECHAR</button>
+</div>
+
+<!-- ══ LIBRARY MODAL ══ -->
+<div id="modal-library" class="modal-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title">Adicionar Música</div>
+      <button class="modal-close" onclick="closeLibrary()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="text" id="url-input" class="input-field" placeholder="Link do Cifra Club..." style="width:100%;">
+      <button id="btn-import" class="btn-import" onclick="importLink()">IMPORTAR LINK</button>
+    </div>
+    <div class="lib-scroll">
+      <div class="lib-section-label">Biblioteca salva</div>
+      <div id="library-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ BACKUP MODAL ══ -->
+<div id="modal-backup">
+  <div class="bkp-title">💾 Backup & Restauração</div>
+  <div class="bkp-sub">Exporte seus dados para guardar ou transferir para outro dispositivo.</div>
+  <button class="btn-bkp exp" onclick="exportBackup()">EXPORTAR BACKUP</button>
+  <button class="btn-bkp imp" onclick="document.getElementById('import-file').click()">IMPORTAR BACKUP</button>
+  <input type="file" id="import-file" accept=".json" style="display:none;" onchange="importBackup(event)">
+  <button class="btn-bkp cls" onclick="closeBackup()">CANCELAR</button>
+</div>
+
+<!-- ══ FABs ══ -->
+<button id="fab-add"  class="fab" onclick="openLibrary()">+</button>
+<button id="fab-home" class="fab" onclick="goHome()">🏠</button>
+<div    id="fab-back" class="fab" onclick="fabBackHandler()">← VOLTAR</div>
+<div    id="fab-save" class="fab" onclick="saveEdit()">✓ SALVAR</div>
+
+<div id="toast"></div>
+
+<script>
+// ════════════════════════════════════
+//  STATE
+// ════════════════════════════════════
+let db = JSON.parse(localStorage.getItem('syncmusician_v8')) || {
+  pastas: { "Repertório Geral": [] },
+  biblioteca: []
+};
+
+let peer = null, connections = [], role = '';
+let pastaAtiva = '', musicaAtivaId = null, musicaAtivaIndex = -1;
+let originalText = '', currentText = '', baseNote = 'C', currentNote = 'C';
+let isScrolling = false, scrollPos = 0;
+let isEditMode = false;
+let peerIdGlobal = null;
+let html5QrCode = null;
+let medleySuggestion = null;
+let medleyWatcherId = null;
+
+const notes = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+
+const $ = id => document.getElementById(id);
+const contentArea    = $('content-area');
+const dynamicContent = $('dynamic-content');
+const cifraContainer = $('cifra-container');
+const editTextarea   = $('edit-textarea');
+const toneBar        = $('tone-bar');
+const controlsBar    = $('controls-bar');
+const toneGrid       = $('tone-grid');
+const scrollPanel    = $('scroll-panel');
+const medleyBubble   = $('medley-bubble');
+const medleyTitleEl  = $('medley-title');
+
+// ════════════════════════════════════
+//  INIT
+// ════════════════════════════════════
+window.onload = () => {
+  const lastId = localStorage.getItem('last_leader_id');
+  if (lastId) $('join-id').value = lastId;
+  buildToneGrid();
+};
+
+function initRole(r) {
+  role = r;
+  if (role === 'M') {
+    const id = $('join-id').value.trim();
+    if (!id) { showToast('Digite o ID do Líder'); return; }
+    localStorage.setItem('last_leader_id', id);
+  }
+  peer = new Peer();
+  showScreen('screen-app');
+  if (role === 'S') setupLeader();
+  else setupMusician($('join-id').value.trim());
+}
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  $(id).classList.add('active');
+}
+
+// ════════════════════════════════════
+//  PEER — LEADER
+// ════════════════════════════════════
+function setupLeader() {
+  $('leader-controls').style.display = 'flex';
+
+  peer.on('open', id => {
+    peerIdGlobal = id;
+    $('status-dot').className = 'status-dot leader';
+    $('status-text').textContent = 'LÍDER';
+    // Set QR
+    $('qr-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(id)}`;
+    $('qr-id-text').textContent = id;
+  });
+
+  peer.on('error', err => showToast('Erro: ' + err.type));
+
+  peer.on('connection', conn => {
+    connections.push(conn);
+    updatePeerBadge();
+    conn.on('open', () => {
+      updatePeerBadge();
+      if (musicaAtivaId) conn.send({ type: 'SYNC', body: currentText, tone: currentNote });
+    });
+    conn.on('close', () => { connections = connections.filter(c => c !== conn); updatePeerBadge(); });
+    conn.on('error', () => { connections = connections.filter(c => c !== conn); updatePeerBadge(); });
+  });
+
+  renderFolders();
+}
+
+function updatePeerBadge() {
+  const alive = connections.filter(c => c.open).length;
+  const badge = $('peer-badge');
+  if (alive > 0) {
+    badge.style.display = 'block';
+    badge.textContent   = `${alive} músico${alive > 1 ? 's' : ''}`;
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+// ════════════════════════════════════
+//  PEER — MUSICIAN
+// ════════════════════════════════════
+function setupMusician(leaderId) {
+  $('status-dot').className  = 'status-dot';
+  $('status-text').textContent = 'CONECTANDO...';
+
+  peer.on('open', () => {
+    const conn = peer.connect(leaderId, { reliable: true });
+
+    conn.on('open', () => {
+      $('status-dot').className  = 'status-dot musician';
+      $('status-text').textContent = 'MÚSICO';
+    });
+
+    conn.on('data', data => {
+      if (data.type === 'SYNC')   receiveSong(data.body, data.tone);
+      if (data.type === 'SCROLL') contentArea.scrollTop = data.pos;
+    });
+
+    conn.on('close', () => {
+      $('status-dot').className  = 'status-dot offline';
+      $('status-text').textContent = 'DESCONECTADO';
+    });
+  });
+
+  peer.on('error', err => {
+    showToast('Erro: ' + err.type);
+    $('status-dot').className  = 'status-dot offline';
+    $('status-text').textContent = 'ERRO';
+  });
+
+  dynamicContent.innerHTML = `
+    <div style="padding:64px 22px;text-align:center;color:var(--text-dim);">
+      <div style="font-size:46px;margin-bottom:14px;">🎸</div>
+      <div style="font-family:var(--font-mono);font-size:12px;letter-spacing:1.5px;">AGUARDANDO LÍDER...</div>
+    </div>`;
+}
+
+function receiveSong(body, tone) {
+  currentText = body; currentNote = tone;
+  showCifraView(); renderCifra(body);
+  $('curr-tone').textContent = tone;
+  $('orig-tone').textContent = tone;
+  toneBar.style.display      = 'flex';
+  controlsBar.style.display  = 'none';
+  scrollPanel.style.display  = 'none';
+  contentArea.scrollTop      = 0;
+  hideMedley();
+}
+
+// ════════════════════════════════════
+//  NAVIGATION
+// ════════════════════════════════════
+function setFABs(view) {
+  $('fab-add').style.display  = 'none';
+  $('fab-home').style.display = 'none';
+  $('fab-back').style.display = 'none';
+  $('fab-save').style.display = 'none';
+  if (view === 'folders') $('fab-home').style.display = 'flex';
+  if (view === 'songs')   $('fab-add').style.display  = 'flex';
+  if (view === 'cifra')   $('fab-back').style.display = 'flex';
+  if (view === 'edit')  { $('fab-back').style.display = 'flex'; $('fab-save').style.display = 'flex'; }
+}
+
+function renderFolders() {
+  pastaAtiva = ''; musicaAtivaId = null; musicaAtivaIndex = -1;
+  showDynamic(); hideAllPanels(); hideMedley(); stopMedleyWatcher();
+  setFABs('folders');
+  let html = `<div class="view-header"><div class="view-title">Minhas Pastas</div></div><div class="folders-grid">`;
+  Object.keys(db.pastas).forEach(nome => {
+    html += `<div class="folder-card" onclick="openFolder('${esc(nome)}')">
+      <div class="folder-emoji">📁</div>
+      <div class="folder-name">${nome}</div>
+      <div class="folder-count">${db.pastas[nome].length} músicas</div>
+    </div>`;
+  });
+  html += `<div class="folder-card new" onclick="createFolder()">
+    <div class="folder-emoji">＋</div>
+    <div class="folder-name">Nova Pasta</div>
+  </div></div>`;
+  dynamicContent.innerHTML = html;
+}
+
+function openFolder(nome) {
+  pastaAtiva = nome;
+  showDynamic(); hideAllPanels(); hideMedley(); stopMedleyWatcher();
+  setFABs('songs');
+  const songs = db.pastas[nome].map(id => db.biblioteca.find(b => b.id === id)).filter(Boolean);
+  let html = `<div class="view-header">
+    <button class="back-btn" onclick="renderFolders()">← PASTAS</button>
+    <div class="view-title">${nome}</div>
+  </div><div class="songs-list">`;
+  if (!songs.length) {
+    html += `<div style="text-align:center;padding:44px;color:var(--text-dim);font-family:var(--font-mono);font-size:12px;">
+      Nenhuma música ainda.<br>Toque + para adicionar.</div>`;
+  }
+  songs.forEach((m, i) => {
+    html += `<div class="song-card" onclick="openSong(${i})">
+      <div>
+        <div class="song-title">${m.title}</div>
+        <div class="song-meta">Tom: ${m.originalTone || 'C'}</div>
+      </div>
+      <div class="song-badge">${m.originalTone || 'C'}</div>
+    </div>`;
+  });
+  html += '</div>';
+  dynamicContent.innerHTML = html;
+}
+
+function openSong(index) {
+  musicaAtivaIndex = index;
+  const mId    = db.pastas[pastaAtiva][index];
+  musicaAtivaId  = mId;
+  const musica = db.biblioteca.find(b => b.id === mId);
+  if (!musica) return;
+
+  originalText = musica.content;
+  baseNote     = musica.originalTone || 'C';        // true original — never changes
+  currentNote  = musica.savedTone    || baseNote;   // last-used tone, persisted
+  isEditMode   = false;
+
+  // Re-apply saved transposition if different from original
+  const savedDiff = notes.indexOf(currentNote) - notes.indexOf(baseNote);
+  currentText = savedDiff !== 0 ? transposeText(originalText, savedDiff) : originalText;
+
+  showCifraView(); renderCifra(currentText);
+  $('curr-tone').textContent = currentNote;
+  $('orig-tone').textContent = baseNote;
+  // Show reset whenever active tone ≠ true original
+  $('btn-reset-tone').style.display = currentNote !== baseNote ? 'block' : 'none';
+  updateToneActive();
+  toneBar.style.display = 'flex';
+
+  if (role === 'S') {
+    controlsBar.style.display = 'flex';
+    syncMusicians(currentText, currentNote);
+  }
+
+  setFABs('cifra');
+  hideMedley();
+  stopScroll();
+  isScrolling = false;
+  contentArea.scrollTop = 0; scrollPos = 0;
+
+  if (role === 'S') startMedleyWatcher();
+}
+
+function fabBackHandler() {
+  if (isEditMode) { cancelEdit(); return; }
+  backFromSong();
+}
+
+function backFromSong() {
+  hideAllPanels(); hideMedley(); stopScroll(); stopMedleyWatcher();
+  openFolder(pastaAtiva);
+}
+
+function showCifraView() {
+  dynamicContent.style.display = 'none';
+  cifraContainer.style.display = 'block';
+  editTextarea.style.display   = 'none';
+}
+function showDynamic() {
+  dynamicContent.style.display = 'block';
+  cifraContainer.style.display = 'none';
+  editTextarea.style.display   = 'none';
+}
+function hideAllPanels() {
+  controlsBar.style.display = 'none';
+  toneBar.style.display     = 'none';
+  scrollPanel.style.display = 'none';
+  toneGrid.style.display    = 'none';
+}
+
+// ════════════════════════════════════
+//  CIFRA
+// ════════════════════════════════════
+function chordify(text) {
+  return text.replace(
+    /\b([A-G][#b]?(?:m|maj|M|min|dim|aug|sus|add)?[0-9]?)(?=[\s\/()\r\n]|$)/g,
+    '<span class="chord">$1</span>'
+  );
+}
+
+function renderCifra(text) {
+  cifraContainer.innerHTML = chordify(text);
+}
+
+// ════════════════════════════════════
+//  TONE
+// ════════════════════════════════════
+function buildToneGrid() {
+  toneGrid.innerHTML = '';
+  notes.forEach(n => {
+    const btn = document.createElement('button');
+    btn.className = 'btn-tone'; btn.textContent = n;
+    btn.onclick = () => { selectTone(n); toggleToneGrid(); };
+    toneGrid.appendChild(btn);
+  });
+}
+
+function updateToneActive() {
+  toneGrid.querySelectorAll('.btn-tone').forEach(b => b.classList.toggle('active', b.textContent === currentNote));
+}
+
+function selectTone(target) {
+  const diff = notes.indexOf(target) - notes.indexOf(baseNote);
+  currentText = transposeText(originalText, diff);
+  currentNote = target;
+  $('curr-tone').textContent = target;
+  $('btn-reset-tone').style.display = target !== baseNote ? 'block' : 'none';
+  updateToneActive();
+  renderCifra(currentText);
+  // Save the chosen tone separately — originalTone stays immutable
+  const m = db.biblioteca.find(b => b.id === musicaAtivaId);
+  if (m) { m.savedTone = target; salvarDB(); }
+  if (role === 'S') syncMusicians(currentText, currentNote);
+}
+
+function resetTone() { selectTone(baseNote); }
+
+function transposeText(text, diff) {
+  return text.replace(/\b([A-G][#b]?)/g, match => {
+    const norm = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[match] || match;
+    const idx  = notes.indexOf(norm);
+    if (idx === -1) return match;
+    let ni = (idx + diff) % 12; if (ni < 0) ni += 12;
+    return notes[ni];
+  });
+}
+
+function toggleToneGrid() {
+  const vis = toneGrid.style.display === 'grid';
+  toneGrid.style.display = vis ? 'none' : 'grid';
+  if (!vis) updateToneActive();
+}
+
+// ════════════════════════════════════
+//  SCROLL
+// ════════════════════════════════════
+function toggleScrollPanel() {
+  scrollPanel.style.display = scrollPanel.style.display === 'flex' ? 'none' : 'flex';
+}
+function toggleScroll() {
+  isScrolling = !isScrolling;
+  const btn = $('btn-play');
+  if (isScrolling) {
+    scrollPos = contentArea.scrollTop;
+    btn.textContent = 'STOP'; btn.classList.add('playing');
+    scrollLoop();
+  } else { stopScroll(); }
+}
+function stopScroll() {
+  isScrolling = false;
+  const btn = $('btn-play');
+  if (btn) { btn.textContent = 'PLAY'; btn.classList.remove('playing'); }
+}
+function scrollLoop() {
+  if (!isScrolling) return;
+  const speed = parseFloat($('scroll-speed').value) / 50;
+  scrollPos  += speed;
+  contentArea.scrollTop = Math.floor(scrollPos);
+  if (role === 'S') connections.forEach(c => { if (c.open) c.send({ type:'SCROLL', pos: contentArea.scrollTop }); });
+  requestAnimationFrame(scrollLoop);
+}
+function updateSpeedLbl() { $('speed-lbl').textContent = $('scroll-speed').value; }
+
+// ════════════════════════════════════
+//  EDIT
+// ════════════════════════════════════
+function toggleEditMode() { isEditMode ? cancelEdit() : enterEditMode(); }
+function enterEditMode() {
+  isEditMode = true;
+  editTextarea.value           = currentText;
+  dynamicContent.style.display = 'none';
+  cifraContainer.style.display = 'none';
+  editTextarea.style.display   = 'block';
+  $('btn-edit-toggle').textContent = '✕ CANCELAR';
+  setFABs('edit');
+}
+function cancelEdit() {
+  isEditMode = false;
+  editTextarea.style.display   = 'none';
+  showCifraView();
+  $('btn-edit-toggle').textContent = '✎ EDITAR';
+  setFABs('cifra');
+}
+function saveEdit() {
+  const txt = editTextarea.value;
+  currentText = txt; originalText = txt;
+  const m = db.biblioteca.find(b => b.id === musicaAtivaId);
+  if (m) { m.content = txt; salvarDB(); }
+  renderCifra(txt); cancelEdit();
+  if (role === 'S') syncMusicians(txt, currentNote);
+  showToast('Cifra salva!');
+}
+
+// ════════════════════════════════════
+//  SONG MGMT
+// ════════════════════════════════════
+function excluirMusica() {
+  if (!confirm('Remover esta música da pasta?')) return;
+  db.pastas[pastaAtiva].splice(musicaAtivaIndex, 1);
+  salvarDB(); openFolder(pastaAtiva);
+}
+
+// ════════════════════════════════════
+//  MEDLEY
+// ════════════════════════════════════
+// Compatible tones: same, ±1, ±3 (relative), ±4, ±5 (4th), ±7 (5th), ±8, ±9
+function tonesCompatible(a, b) {
+  if (a === b) return true;
+  const ia = notes.indexOf(a), ib = notes.indexOf(b);
+  const d = Math.abs(ia - ib), min = Math.min(d, 12 - d);
+  return [1, 3, 4, 5, 7, 8, 9].includes(min);
+}
+
+function findMedleySuggestion() {
+  const ids = db.pastas[pastaAtiva] || [];
+  for (let i = 0; i < ids.length; i++) {
+    if (ids[i] === musicaAtivaId) continue;
+    const m = db.biblioteca.find(b => b.id === ids[i]);
+    if (!m) continue;
+    if (tonesCompatible(currentNote, m.originalTone || 'C')) {
+      return { id: ids[i], indexInPasta: i, title: m.title };
+    }
+  }
+  return null;
+}
+
+// Returns array of paragraph blocks: [{start, end, lineCount}]
+// A block = consecutive non-empty lines.
+function getParagraphBlocks(text) {
+  const lines = text.split('\n');
+  const blocks = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (lines[i].trim() !== '') {
+      const start = i;
+      while (i < lines.length && lines[i].trim() !== '') i++;
+      blocks.push({ start, end: i - 1, lineCount: i - start });
+    } else { i++; }
+  }
+  return blocks;
+}
+
+// Returns the line index of the first line of the first block whose chords
+// match targetTone — used to jump directly to the matching section.
+function findMatchingLineInSong(content, targetTone) {
+  const blocks = getParagraphBlocks(content);
+  const lines  = content.split('\n');
+  const chordRe = /\b([A-G][#b]?(?:m|maj|M|min|dim|aug|sus|add)?[0-9]?)\b/g;
+  const normMap = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'};
+
+  for (const block of blocks) {
+    for (let li = block.start; li <= block.end; li++) {
+      const matches = [...lines[li].matchAll(chordRe)];
+      for (const m of matches) {
+        const raw  = m[1];
+        const norm = normMap[raw] || raw;
+        // Check root (strip minor/qualifier suffix for root comparison)
+        const root = norm.replace(/[^A-G#b]/g, '');
+        if (root === targetTone) return block.start;
+      }
+    }
+  }
+  return 0; // fallback: beginning
+}
+
+// Scroll content-area so that line `lineIdx` of the cifra is near top
+function scrollToLine(text, lineIdx) {
+  const lines     = text.split('\n');
+  const totalH    = cifraContainer.scrollHeight;
+  const fraction  = lineIdx / Math.max(lines.length, 1);
+  const targetTop = Math.floor(fraction * totalH);
+  // Clamp so we don't overshoot
+  const maxScroll = contentArea.scrollHeight - contentArea.clientHeight;
+  contentArea.scrollTop = Math.min(targetTop, maxScroll);
+  scrollPos = contentArea.scrollTop;
+}
+
+function startMedleyWatcher() {
+  stopMedleyWatcher();
+  medleySuggestion = null;
+  medleyWatcherId  = setInterval(() => {
+    const scrollable = contentArea.scrollHeight - contentArea.clientHeight;
+    if (scrollable <= 0) return;
+    const pct = contentArea.scrollTop / scrollable;
+
+    // Line appears first at 45 %
+    if (pct >= 0.45 && !medleySuggestion) {
+      medleySuggestion = findMedleySuggestion();
+      if (medleySuggestion) insertMedleyLine(medleySuggestion.title);
+    }
+    // Bubble appears later at 65 %
+    if (pct >= 0.65 && medleySuggestion && !medleyBubble.classList.contains('visible')) {
+      showMedleyBubble(medleySuggestion.title);
+    }
+    // Both hide if user scrolls back above 30 %
+    if (pct < 0.30 && medleySuggestion) { hideMedley(); medleySuggestion = null; }
+  }, 700);
+}
+
+function showMedleyBubble(title) {
+  const el = medleyTitleEl;
+  el.textContent = title;
+  medleyBubble.classList.add('visible');
+}
+
+function insertMedleyLine(title) {
+  removeMedleyLine();
+  const lines  = currentText.split('\n');
+  const blocks = getParagraphBlocks(currentText);
+
+  if (blocks.length < 2) return;
+
+  // Build breath candidates: gaps between blocks where BOTH neighbours
+  // have ≥ 2 lines (real strophes/choruses, not lone headers).
+  const breaths = [];
+  for (let b = 0; b < blocks.length - 1; b++) {
+    const gapLine = blocks[b].end + 1;           // first empty line after block b
+    const next    = blocks[b + 1];
+    // Skip if no actual empty gap exists between the two blocks
+    if (gapLine >= next.start) continue;
+    breaths.push({
+      gapLine,                                   // line to replace with the divider
+      nextStart: next.start,                     // first non-empty line of next block
+      weight: blocks[b].lineCount + next.lineCount
+    });
+  }
+
+  if (breaths.length === 0) return;
+
+  // Target: the gap closest to 70 % of total lines
+  const target = Math.floor(lines.length * 0.70);
+  // Prefer gaps between heavier blocks (more content = real sections)
+  const best = breaths.reduce((a, b) => {
+    const scoreA = Math.abs(a.gapLine - target) - a.weight * 0.3;
+    const scoreB = Math.abs(b.gapLine - target) - b.weight * 0.3;
+    return scoreB < scoreA ? b : a;
+  });
+
+  const before = lines.slice(0, best.gapLine).join('\n');
+  const after  = lines.slice(best.nextStart).join('\n');
+
+  cifraContainer.innerHTML =
+    chordify(before) +
+    `<div id="medley-line" data-title="▶ ${title}"></div>` +
+    chordify(after);
+
+  requestAnimationFrame(() => {
+    const el = document.getElementById('medley-line');
+    if (el) el.classList.add('visible');
+  });
+}
+
+function removeMedleyLine() {
+  if (document.getElementById('medley-line')) renderCifra(currentText);
+}
+
+function stopMedleyWatcher() {
+  if (medleyWatcherId) { clearInterval(medleyWatcherId); medleyWatcherId = null; }
+}
+
+function hideMedley() {
+  medleyBubble.classList.remove('visible');
+  removeMedleyLine();
+}
+
+function jumpToMedley() {
+  if (!medleySuggestion) return;
+
+  // Capture everything before openSong() clears state
+  const idx          = medleySuggestion.indexInPasta;
+  const title        = medleySuggestion.title;
+  const wasScrolling = isScrolling;
+  const savedSpeed   = $('scroll-speed').value;
+
+  // Find the line in the TARGET song that matches the current tone
+  const targetMusica   = db.biblioteca.find(b => b.id === medleySuggestion.id);
+  const jumpLineIndex  = targetMusica
+    ? findMatchingLineInSong(targetMusica.content, currentNote)
+    : 0;
+
+  hideMedley(); stopMedleyWatcher();
+  openSong(idx);          // renders new cifra, resets scrollTop = 0
+  showToast('▶ ' + title);
+
+  // After render: jump to matching section, then optionally resume scroll
+  setTimeout(() => {
+    if (jumpLineIndex > 0) scrollToLine(targetMusica.content, jumpLineIndex);
+
+    if (wasScrolling) {
+      $('scroll-speed').value    = savedSpeed;
+      $('speed-lbl').textContent = savedSpeed;
+      scrollPanel.style.display  = 'flex';
+      isScrolling = true;
+      scrollPos   = contentArea.scrollTop;
+      const btn   = $('btn-play');
+      btn.textContent = 'STOP'; btn.classList.add('playing');
+      scrollLoop();
+    }
+  }, 160);
+}
+
+// ════════════════════════════════════
+//  LIBRARY
+// ════════════════════════════════════
+function openLibrary() {
+  $('modal-library').classList.add('open');
+  renderLibraryList();
+}
+function closeLibrary() { $('modal-library').classList.remove('open'); }
+
+function renderLibraryList() {
+  const list = $('library-list');
+  list.innerHTML = '';
+  if (!db.biblioteca.length) {
+    list.innerHTML = '<div style="color:var(--text-dim);font-family:var(--font-mono);font-size:12px;padding:10px 0;">Biblioteca vazia.</div>';
+    return;
+  }
+  db.biblioteca.forEach(m => {
+    const inPasta = db.pastas[pastaAtiva] && db.pastas[pastaAtiva].includes(m.id);
+    const item = document.createElement('div');
+    item.className = 'lib-item';
+    item.innerHTML = `
+      <div class="lib-item-title">${m.title}</div>
+      ${inPasta ? '<span class="lib-check">✓</span>' : `<button class="btn-lib-add" onclick="addFromLibrary('${m.id}')">ADD</button>`}`;
+    list.appendChild(item);
+  });
+}
+
+async function importLink() {
+  const url = $('url-input').value.trim();
+  if (!url) return;
+  const existing = db.biblioteca.find(m => m.url === url);
+  if (existing) { addFromLibrary(existing.id); $('url-input').value = ''; return; }
+  const btn = $('btn-import');
+  btn.textContent = 'IMPORTANDO...'; btn.disabled = true;
+  try {
+    const res  = await fetch(`https://syncmusician.onrender.com/get-cifra?url=${encodeURIComponent(url)}`);
+    const data = await res.json();
+    const id   = Date.now().toString();
+    db.biblioteca.push({ id, url, title: data.titulo || 'Sem título', content: data.cifra, originalTone: 'C' });
+    db.pastas[pastaAtiva].push(id);
+    salvarDB(); closeLibrary(); openFolder(pastaAtiva);
+    $('url-input').value = '';
+    showToast('Música importada!');
+  } catch { showToast('Erro ao importar.'); }
+  finally { btn.textContent = 'IMPORTAR LINK'; btn.disabled = false; }
+}
+
+function addFromLibrary(mId) {
+  if (!db.pastas[pastaAtiva].includes(mId)) { db.pastas[pastaAtiva].push(mId); salvarDB(); }
+  closeLibrary(); openFolder(pastaAtiva);
+}
+
+// ════════════════════════════════════
+//  BACKUP
+// ════════════════════════════════════
+function openBackup()  { $('modal-backup').classList.add('open'); }
+function closeBackup() { $('modal-backup').classList.remove('open'); }
+function exportBackup() {
+  const a = document.createElement('a');
+  a.href     = URL.createObjectURL(new Blob([JSON.stringify(db,null,2)], {type:'application/json'}));
+  a.download = `syncmusician_${new Date().toISOString().slice(0,10)}.json`;
+  a.click(); closeBackup(); showToast('Backup exportado!');
+}
+function importBackup(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const fr = new FileReader();
+  fr.onload = ev => {
+    try {
+      const p = JSON.parse(ev.target.result);
+      if (p.pastas && p.biblioteca) { db = p; salvarDB(); closeBackup(); renderFolders(); showToast('Backup restaurado!'); }
+      else showToast('Arquivo inválido.');
+    } catch { showToast('Erro ao ler arquivo.'); }
+  };
+  fr.readAsText(file);
+}
+
+// ════════════════════════════════════
+//  FOLDER MGMT
+// ════════════════════════════════════
+function createFolder() {
+  const nome = prompt('Nome da nova pasta:');
+  if (nome && nome.trim() && !db.pastas[nome.trim()]) {
+    db.pastas[nome.trim()] = []; salvarDB(); renderFolders();
+  }
+}
+
+// ════════════════════════════════════
+//  QR & COPY
+// ════════════════════════════════════
+function toggleQR() { $('modal-qr').classList.toggle('open'); }
+
+function copyID() {
+  if (!peerIdGlobal) { showToast('ID ainda não disponível...'); return; }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(peerIdGlobal)
+      .then(() => showToast('ID copiado! ✓'))
+      .catch(() => _fallbackCopy(peerIdGlobal));
+  } else { _fallbackCopy(peerIdGlobal); }
+}
+function _fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try { document.execCommand('copy'); showToast('ID copiado! ✓'); }
+  catch { showToast('ID: ' + text); }
+  document.body.removeChild(ta);
+}
+
+// ════════════════════════════════════
+//  SCANNER
+// ════════════════════════════════════
+function startScanner() {
+  const container = $('reader-container');
+  container.style.display = 'block';
+  if (html5QrCode) {
+    html5QrCode.stop().catch(()=>{}).finally(() => { html5QrCode = null; _initScanner(); });
+  } else { _initScanner(); }
+}
+function _initScanner() {
+  html5QrCode = new Html5Qrcode('reader');
+  html5QrCode.start(
+    { facingMode: 'environment' },
+    { fps: 10, qrbox: { width: 230, height: 230 } },
+    decoded => { $('join-id').value = decoded; showToast('QR lido! ✓'); stopScanner(); }
+  ).catch(err => {
+    $('reader-container').style.display = 'none';
+    const isSecure = location.protocol === 'https:' || location.hostname === 'localhost';
+    showToast(isSecure ? 'Permissão de câmera negada' : 'Câmera exige HTTPS ou localhost');
+  });
+}
+function stopScanner() {
+  if (!html5QrCode) return;
+  html5QrCode.stop()
+    .then(() => { $('reader-container').style.display = 'none'; html5QrCode = null; })
+    .catch(() => { $('reader-container').style.display = 'none'; });
+}
+
+// ════════════════════════════════════
+//  SYNC
+// ════════════════════════════════════
+function syncMusicians(body, tone) {
+  connections.forEach(c => { if (c.open) c.send({ type:'SYNC', body, tone }); });
+}
+
+// ════════════════════════════════════
+//  UTILS
+// ════════════════════════════════════
+function goHome()   { location.reload(); }
+function salvarDB() { localStorage.setItem('syncmusician_v8', JSON.stringify(db)); }
+function esc(s)     { return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+let toastT;
+function showToast(msg) {
+  const t = $('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+$('modal-library').addEventListener('click', e => { if (e.target === $('modal-library')) closeLibrary(); });
+</script>
+</body>
+</html>

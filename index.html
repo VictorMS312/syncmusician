@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Sync Musician Pro</title>
+<meta name="theme-color" content="#0a0a0a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ══ SETUP ══ -->
+<div id="screen-setup" class="screen active">
+  <div class="setup-logo">
+    <div class="logo-icon">🎵</div>
+    <div class="logo-text">Sync<span>Musician</span></div>
+  </div>
+  <div class="setup-version">Pro · v8.1</div>
+
+  <div class="setup-card">
+    <div class="setup-card-label">Você comanda o show?</div>
+    <button class="btn-leader" onclick="initRole('S')">SOU O LÍDER</button>
+  </div>
+
+  <div class="setup-card">
+    <div class="setup-card-label">Entrar como Músico</div>
+    <div class="input-row">
+      <input type="text" id="join-id" class="input-field"
+             placeholder="Cole o ID do Líder aqui"
+             autocomplete="off" spellcheck="false"
+             autocorrect="off" autocapitalize="none">
+      <button class="btn-scan" onclick="startScanner()" title="Escanear QR Code">📷</button>
+    </div>
+    <div id="reader-container"><div id="reader"></div></div>
+    <button class="btn-musician" onclick="initRole('M')">CONECTAR COMO MÚSICO</button>
+  </div>
+</div>
+
+<!-- ══ APP ══ -->
+<div id="screen-app" class="screen">
+  <div class="app-header">
+    <div class="header-left">
+      <div id="status-dot" class="status-dot"></div>
+      <div id="status-text">—</div>
+      <div id="peer-badge" class="peer-badge"></div>
+    </div>
+    <div class="header-right" id="leader-controls" style="display:none;">
+      <button class="btn-hdr" onclick="copyID()">COPIAR ID</button>
+      <button class="btn-hdr qr-btn" onclick="toggleQR()">QR</button>
+      <button class="btn-hdr bkp-btn" onclick="openBackup()" title="Backup">💾</button>
+    </div>
+  </div>
+
+  <div id="controls-bar">
+    <div class="ctrl-group">
+      <button class="btn-ctrl del"  onclick="excluirMusica()">✕ APAGAR</button>
+      <button class="btn-ctrl edit" id="btn-edit-toggle" onclick="toggleEditMode()">✎ EDITAR</button>
+    </div>
+    <div class="ctrl-group">
+      <button class="btn-ctrl tone" onclick="toggleToneGrid()">♪ TOM</button>
+      <button class="btn-ctrl scrl" onclick="toggleScrollPanel()">⟳ SCROLL</button>
+    </div>
+  </div>
+
+  <div id="tone-grid"></div>
+
+  <div id="tone-bar">
+    <div class="tone-info">
+      TOM: <span class="tone-current" id="curr-tone">C</span>
+      <span style="color:var(--text-muted);font-size:10px;">(orig: <span id="orig-tone">C</span>)</span>
+    </div>
+    <button class="btn-reset-tone" id="btn-reset-tone" onclick="resetTone()">ORIGINAL</button>
+    <div id="medley-bubble" onclick="jumpToMedley()">
+      <span class="medley-icon">▶</span>
+      <div class="medley-text-col">
+        <div class="medley-label">Próxima</div>
+        <div class="medley-title" id="medley-title">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="scroll-panel">
+    <button id="btn-play" class="btn-play" onclick="toggleScroll()">PLAY</button>
+    <input type="range" id="scroll-speed" min="1" max="100" value="20" oninput="updateSpeedLbl()">
+    <span class="speed-lbl" id="speed-lbl">20</span>
+  </div>
+
+  <div id="content-area">
+    <div id="dynamic-content"></div>
+    <div id="cifra-container"></div>
+    <textarea id="edit-textarea" spellcheck="false"></textarea>
+  </div>
+</div>
+
+<!-- ══ QR MODAL ══ -->
+<div id="modal-qr">
+  <img id="qr-img" src="" alt="QR Code">
+  <div class="qr-id-display" id="qr-id-text" onclick="copyID()" title="Toque para copiar">—</div>
+  <div class="qr-hint">Toque no ID para copiar</div>
+  <button class="btn-qr-close" onclick="toggleQR()">FECHAR</button>
+</div>
+
+<!-- ══ LIBRARY MODAL ══ -->
+<div id="modal-library" class="modal-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title">Adicionar Música</div>
+      <button class="modal-close" onclick="closeLibrary()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="text" id="url-input" class="input-field" placeholder="Link do Cifra Club..." style="width:100%;">
+      <button id="btn-import" class="btn-import" onclick="importLink()">IMPORTAR LINK</button>
+    </div>
+    <div class="lib-scroll">
+      <div class="lib-section-label">Biblioteca salva</div>
+      <div id="library-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ BACKUP MODAL ══ -->
+<div id="modal-backup">
+  <div class="bkp-title">💾 Backup & Restauração</div>
+  <div class="bkp-sub">Exporte seus dados para guardar ou transferir para outro dispositivo.</div>
+  <button class="btn-bkp exp" onclick="exportBackup()">EXPORTAR BACKUP</button>
+  <button class="btn-bkp imp" onclick="document.getElementById('import-file').click()">IMPORTAR BACKUP</button>
+  <input type="file" id="import-file" accept=".json" style="display:none;" onchange="importBackup(event)">
+  <button class="btn-bkp cls" onclick="closeBackup()">CANCELAR</button>
+</div>
+
+<!-- ══ FABs ══ -->
+<button id="fab-add"  class="fab" onclick="openLibrary()">+</button>
+<button id="fab-home" class="fab" onclick="goHome()">🏠</button>
+<div    id="fab-back" class="fab" onclick="fabBackHandler()">← VOLTAR</div>
+<div    id="fab-save" class="fab" onclick="saveEdit()">✓ SALVAR</div>
+
+<div id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
