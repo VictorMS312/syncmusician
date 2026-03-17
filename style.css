@@ -17,7 +17,7 @@
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body {
-  height: 100%; width: 90%;
+  height: 100%; width: 100%;
   background: var(--bg); color: var(--text);
   font-family: var(--font-ui);
   overflow: hidden;
@@ -247,11 +247,13 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
 .speed-lbl { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); min-width: 24px; }
 
 /* ── CONTENT AREA ── */
+#content-area 
+
+/* DEPOIS */
 #content-area {
-  flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
   scrollbar-width: none; background: var(--bg);
-}
-#content-area::-webkit-scrollbar { display: none; }
+} }
 
 /* ── FOLDERS ── */
 .view-header {
