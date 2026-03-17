@@ -249,15 +249,7 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
 /* ── CONTENT AREA ── */
 #content-area 
 
-/* DEPOIS */
-#content-area {
-  /* ANTES */
-#content-area {
-  flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
-  scrollbar-width: none; background: var(--bg);
-}
 
-/* DEPOIS */
 #content-area {
   flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
   scrollbar-width: none; background: var(--bg);
