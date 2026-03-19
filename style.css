@@ -30,10 +30,11 @@ html, body {
 .screen.active { display: flex; flex-direction: column; }
 
 /* ── SETUP ── */
+/* DEPOIS */
 #screen-setup {
   align-items: center; justify-content: center;
   padding: 28px 22px; background: var(--bg);
-  position: relative; overflow-y: auto;
+  position: relative; overflow-y: auto; overflow-x: hidden;
 }
 #screen-setup::before {
   content: ''; position: absolute;
