@@ -170,6 +170,7 @@ function renderFolders() {
   let html = `<div class="view-header"><div class="view-title">Minhas Pastas</div></div><div class="folders-grid">`;
   Object.keys(db.pastas).forEach(nome => {
     html += `<div class="folder-card" onclick="openFolder('${esc(nome)}')">
+      <button class="folder-menu-btn" onclick="event.stopPropagation(); openFolderMenu(event, '${esc(nome)}')">⋮</button>
       <div class="folder-emoji">📁</div>
       <div class="folder-name">${nome}</div>
       <div class="folder-count">${db.pastas[nome].length} músicas</div>
@@ -274,11 +275,29 @@ function hideAllPanels() {
 // ════════════════════════════════════
 //  CIFRA
 // ════════════════════════════════════
+// A valid chord token: root [#/b] [qualifier] [bass]
+const CHORD_TOKEN_RE = /^[A-G][#b]?(?:m|maj|M|min|dim|aug|sus|add)?[0-9]?(?:\/[A-G][#b]?)?$/;
+
+function isChordLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  // Section headers like [Refrão] are not chord lines
+  if (/^\[.+\]$/.test(trimmed)) return false;
+  const tokens = trimmed.split(/\s+/);
+  // All tokens must match the chord pattern
+  return tokens.length > 0 && tokens.every(t => CHORD_TOKEN_RE.test(t));
+}
+
 function chordify(text) {
-  return text.replace(
-    /\b([A-G][#b]?(?:m|maj|M|min|dim|aug|sus|add)?[0-9]?)(?=[\s\/()\r\n]|$)/g,
-    '<span class="chord">$1</span>'
-  );
+  return text.split('\n').map(line => {
+    if (isChordLine(line)) {
+      return line.replace(
+        /([A-G][#b]?(?:m|maj|M|min|dim|aug|sus|add)?[0-9]?(?:\/[A-G][#b]?)?)/g,
+        '<span class="chord">$1</span>'
+      );
+    }
+    return line; // lyric line — no color applied
+  }).join('\n');
 }
 
 function renderCifra(text) {
@@ -619,14 +638,36 @@ async function importLink() {
   try {
     const res  = await fetch(`https://syncmusician.onrender.com/get-cifra?url=${encodeURIComponent(url)}`);
     const data = await res.json();
+    if (!data.cifra) throw new Error('sem conteúdo');
     const id   = Date.now().toString();
     db.biblioteca.push({ id, url, title: data.titulo || 'Sem título', content: data.cifra, originalTone: 'C' });
     db.pastas[pastaAtiva].push(id);
     salvarDB(); closeLibrary(); openFolder(pastaAtiva);
     $('url-input').value = '';
     showToast('Música importada!');
-  } catch { showToast('Erro ao importar.'); }
+  } catch {
+    showToast('Site não suportado — cole a cifra manualmente ↓');
+    toggleManualPaste(true);
+  }
   finally { btn.textContent = 'IMPORTAR LINK'; btn.disabled = false; }
+}
+
+function toggleManualPaste(forceOpen) {
+  const area = $('manual-paste-area');
+  const isOpen = area.style.display === 'flex';
+  area.style.display = (forceOpen || !isOpen) ? 'flex' : 'none';
+}
+
+function saveManual() {
+  const title   = $('manual-title-input').value.trim();
+  const content = $('manual-cifra-input').value.trim();
+  if (!title) { showToast('Digite o nome da música'); return; }
+  if (!content) { showToast('Cole o conteúdo da cifra'); return; }
+  const id = Date.now().toString();
+  db.biblioteca.push({ id, url: '', title, content, originalTone: 'C' });
+  db.pastas[pastaAtiva].push(id);
+  salvarDB(); closeLibrary(); openFolder(pastaAtiva);
+  showToast('Música salva!');
 }
 
 function addFromLibrary(mId) {
@@ -666,6 +707,57 @@ function createFolder() {
   if (nome && nome.trim() && !db.pastas[nome.trim()]) {
     db.pastas[nome.trim()] = []; salvarDB(); renderFolders();
   }
+}
+
+function openFolderMenu(e, nome) {
+  closeContextMenu();
+  const rect = e.target.getBoundingClientRect();
+  const backdrop = document.createElement('div');
+  backdrop.className = 'folder-ctx-backdrop';
+  backdrop.onclick = closeContextMenu;
+
+  const menu = document.createElement('div');
+  menu.className = 'folder-ctx';
+  menu.id = 'folder-ctx-menu';
+  menu.style.top  = (rect.bottom + 6) + 'px';
+  menu.style.left = Math.min(rect.left, window.innerWidth - 180) + 'px';
+  menu.innerHTML = `
+    <div class="folder-ctx-item" onclick="renameFolder('${esc(nome)}')">✏️ Renomear</div>
+    <div class="folder-ctx-item danger" onclick="deleteFolder('${esc(nome)}')">🗑 Excluir pasta</div>`;
+
+  document.body.appendChild(backdrop);
+  document.body.appendChild(menu);
+}
+
+function closeContextMenu() {
+  const m = document.getElementById('folder-ctx-menu');
+  if (m) m.remove();
+  document.querySelectorAll('.folder-ctx-backdrop').forEach(b => b.remove());
+}
+
+function renameFolder(nome) {
+  closeContextMenu();
+  const novo = prompt('Novo nome:', nome);
+  if (!novo || !novo.trim() || novo.trim() === nome) return;
+  if (db.pastas[novo.trim()]) { showToast('Já existe uma pasta com esse nome'); return; }
+  // Preserve order by rebuilding the object
+  const novas = {};
+  Object.keys(db.pastas).forEach(k => {
+    novas[k === nome ? novo.trim() : k] = db.pastas[k];
+  });
+  db.pastas = novas;
+  salvarDB(); renderFolders();
+}
+
+function deleteFolder(nome) {
+  closeContextMenu();
+  const count = db.pastas[nome].length;
+  const msg = count > 0
+    ? `Excluir "${nome}" com ${count} música(s)? As músicas ficam na biblioteca.`
+    : `Excluir a pasta "${nome}"?`;
+  if (!confirm(msg)) return;
+  delete db.pastas[nome];
+  salvarDB(); renderFolders();
 }
 
 // ════════════════════════════════════

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Sync Musician</title>
+<title>Sync Musician Pro</title>
 <meta name="theme-color" content="#0a0a0a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -115,8 +115,14 @@
       <button class="modal-close" onclick="closeLibrary()">✕</button>
     </div>
     <div class="modal-body">
-      <input type="text" id="url-input" class="input-field" placeholder="Link do Cifra Club..." style="width:100%;">
+      <input type="text" id="url-input" class="input-field" placeholder="Link do site de cifra..." style="width:100%;">
       <button id="btn-import" class="btn-import" onclick="importLink()">IMPORTAR LINK</button>
+      <button class="btn-manual-toggle" onclick="toggleManualPaste()">✎ colar cifra manualmente</button>
+      <div id="manual-paste-area">
+        <input type="text" id="manual-title-input" class="input-field" placeholder="Nome da música">
+        <textarea id="manual-cifra-input" placeholder="Cole aqui o conteúdo da cifra..."></textarea>
+        <button class="btn-manual-save" onclick="saveManual()">SALVAR CIFRA</button>
+      </div>
     </div>
     <div class="lib-scroll">
       <div class="lib-section-label">Biblioteca salva</div>
