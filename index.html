@@ -147,6 +147,26 @@
 <div    id="fab-back" class="fab" onclick="fabBackHandler()">← VOLTAR</div>
 <div    id="fab-save" class="fab" onclick="saveEdit()">✓ SALVAR</div>
 
+<!-- ══ CHORD POPUP ══ -->
+<div id="chord-overlay" onclick="closeChordPopup()"></div>
+<div id="chord-popup">
+  <div class="chord-popup-handle"></div>
+  <div class="chord-popup-header">
+    <div class="chord-popup-name" id="chord-popup-title">Am</div>
+    <button class="chord-popup-close" onclick="closeChordPopup()">✕</button>
+  </div>
+  <div class="chord-inst-tabs" id="chord-inst-tabs">
+    <div class="chord-inst-tab active" data-inst="guitar"  onclick="chordSelectInst(this)">🎸 Violão</div>
+    <div class="chord-inst-tab"        data-inst="piano"   onclick="chordSelectInst(this)">🎹 Teclado</div>
+    <div class="chord-inst-tab"        data-inst="bass"    onclick="chordSelectInst(this)">🎵 Baixo</div>
+    <div class="chord-inst-tab"        data-inst="ukulele" onclick="chordSelectInst(this)">🪗 Ukulele</div>
+  </div>
+  <div class="chord-var-row" id="chord-var-row"></div>
+  <div class="chord-diagram-scroll">
+    <div class="chord-diagram-track" id="chord-diagram-track"></div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script src="app.js"></script>

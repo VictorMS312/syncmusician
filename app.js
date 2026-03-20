@@ -275,33 +275,58 @@ function hideAllPanels() {
 // ════════════════════════════════════
 //  CIFRA
 // ════════════════════════════════════
-// A valid chord token: root [#/b] [qualifier] [bass]
 const CHORD_TOKEN_RE = /^[A-G][#b]?(?:m|maj|M|min|dim|aug|sus|add)?[0-9]?(?:\/[A-G][#b]?)?$/;
+const QUALIFIER_RE   = /^(?:maj|min|dim|aug|sus|add)$/i;
 
+// Wrap a chord string into a tappable span
+function chordSpan(chord) {
+  const safe = chord.replace(/'/g, "\\'");
+  return `<span class="chord" onclick="openChordPopup('${safe}')">${chord}</span>`;
+}
+
+// ── Mode A: content came with <b> tags (Cifra Club / Cifras.com format) ──
+// <b> always marks a chord in these sites — trust it completely.
+function renderFromBTags(text) {
+  return text
+    .replace(/<b>([^<]*)<\/b>/gi, (_, chord) => chordSpan(chord.trim()))
+    .replace(/<[^>]+>/g, '');   // strip any remaining HTML tags
+}
+
+// ── Mode B: plain text — detect chord lines heuristically ──
 function isChordLine(line) {
-  const trimmed = line.trim();
-  if (!trimmed) return false;
-  // Section headers like [Refrão] are not chord lines
-  if (/^\[.+\]$/.test(trimmed)) return false;
-  const tokens = trimmed.split(/\s+/);
-  // All tokens must match the chord pattern
-  return tokens.length > 0 && tokens.every(t => CHORD_TOKEN_RE.test(t));
+  const t = line.trim();
+  if (!t || /^\[.+\]$/.test(t)) return false;
+  const tokens = t.split(/\s+/).filter(Boolean);
+  let chords = 0, words = 0;
+  for (const tok of tokens) {
+    if (CHORD_TOKEN_RE.test(tok))                          chords++;
+    else if (/[a-záàâãéêíóôõúç]{3,}/i.test(tok) && !QUALIFIER_RE.test(tok)) words++;
+  }
+  return chords > 0 && words === 0;
 }
 
-function chordify(text) {
-  return text.split('\n').map(line => {
-    if (isChordLine(line)) {
-      return line.replace(
-        /([A-G][#b]?(?:m|maj|M|min|dim|aug|sus|add)?[0-9]?(?:\/[A-G][#b]?)?)/g,
-        '<span class="chord">$1</span>'
-      );
-    }
-    return line; // lyric line — no color applied
-  }).join('\n');
+function renderFromPlainText(text) {
+  return text.split('\n').map(line =>
+    isChordLine(line)
+      ? line.replace(
+          /([A-G][#b]?(?:m|maj|M|min|dim|aug|sus|add)?[0-9]?(?:\/[A-G][#b]?)?)/g,
+          (m) => chordSpan(m)
+        )
+      : line
+  ).join('\n');
 }
 
+// ── Main renderer: picks mode automatically ──
 function renderCifra(text) {
-  cifraContainer.innerHTML = chordify(text);
+  const hasBTags = /<b>/i.test(text);
+  cifraContainer.innerHTML = hasBTags
+    ? renderFromBTags(text)
+    : renderFromPlainText(text);
+}
+
+// chordify() is still used by medley line injection
+function chordify(text) {
+  return /<b>/i.test(text) ? renderFromBTags(text) : renderFromPlainText(text);
 }
 
 // ════════════════════════════════════
@@ -834,3 +859,450 @@ function showToast(msg) {
 }
 
 $('modal-library').addEventListener('click', e => { if (e.target === $('modal-library')) closeLibrary(); });
+
+// ════════════════════════════════════════════════════════
+//  CHORD POPUP ENGINE
+// ════════════════════════════════════════════════════════
+const CHORD_DB = {
+  'C':  {
+    guitar:  [
+      { name:'C aberto',   strings:[-1,3,2,0,1,0], fingers:[0,3,2,0,1,0] },
+      { name:'C (5ª pos)', strings:[-1,3,5,5,5,3], fingers:[0,1,3,4,4,1], baseFret:3, barre:{fret:3,from:1,to:5} },
+      { name:'Csus2',      strings:[-1,3,2,0,0,3], fingers:[0,2,1,0,0,4] },
+    ],
+    piano:   [
+      { name:'C maior',      notes:['C','E','G'] },
+      { name:'C c/ oitava',  notes:['C','E','G','C2'] },
+      { name:'2ª inversão',  notes:['G','C2','E2'] },
+    ],
+    bass:    [
+      { name:'C raiz',  strings:[-1,-1,3,3], fingers:[0,0,1,1], baseFret:2 },
+      { name:'C (5ª)',  strings:[-1,3,3,-1], fingers:[0,1,1,0] },
+    ],
+    ukulele: [
+      { name:'C',      strings:[0,0,0,3], fingers:[0,0,0,3] },
+      { name:'C alt',  strings:[5,4,3,3], fingers:[3,2,1,1], baseFret:3 },
+    ],
+  },
+  'G':  {
+    guitar:  [
+      { name:'G aberto',  strings:[3,2,0,0,0,3], fingers:[2,1,0,0,0,4] },
+      { name:'G fechado', strings:[3,2,0,0,3,3], fingers:[2,1,0,0,3,4] },
+      { name:'G barre',   strings:[3,5,5,4,3,3], fingers:[1,3,4,2,1,1], baseFret:3, barre:{fret:3,from:0,to:5} },
+    ],
+    piano:   [
+      { name:'G maior',     notes:['G','B','D'] },
+      { name:'G c/ oitava', notes:['G','B','D','G2'] },
+      { name:'2ª inversão', notes:['D','G2','B2'] },
+    ],
+    bass:    [
+      { name:'G raiz', strings:[-1,-1,0,0], fingers:[0,0,0,0] },
+      { name:'G (5ª)', strings:[3,5,-1,-1], fingers:[1,3,0,0] },
+    ],
+    ukulele: [
+      { name:'G',      strings:[0,2,3,2], fingers:[0,1,3,2] },
+      { name:'G alt',  strings:[0,2,3,4], fingers:[0,1,2,4] },
+    ],
+  },
+  'D':  {
+    guitar:  [
+      { name:'D aberto', strings:[-1,-1,0,2,3,2], fingers:[0,0,0,1,3,2] },
+      { name:'D barre',  strings:[5,5,7,7,7,5],   fingers:[1,1,3,3,3,1], baseFret:5, barre:{fret:5,from:0,to:5} },
+      { name:'Dsus2',    strings:[-1,-1,0,2,3,0], fingers:[0,0,0,1,3,0] },
+    ],
+    piano:   [
+      { name:'D maior',     notes:['D','F#','A'] },
+      { name:'D c/ oitava', notes:['D','F#','A','D2'] },
+    ],
+    bass:    [
+      { name:'D raiz', strings:[-1,-1,0,0], fingers:[0,0,0,0] },
+      { name:'D (5ª)', strings:[5,5,-1,-1], fingers:[1,1,0,0], baseFret:4 },
+    ],
+    ukulele: [
+      { name:'D',   strings:[2,2,2,0], fingers:[2,1,3,0] },
+      { name:'D7',  strings:[2,2,2,3], fingers:[1,1,1,2] },
+    ],
+  },
+  'E':  {
+    guitar:  [
+      { name:'E aberto', strings:[0,2,2,1,0,0], fingers:[0,2,3,1,0,0] },
+      { name:'E7',       strings:[0,2,0,1,0,0], fingers:[0,2,0,1,0,0] },
+      { name:'E barre',  strings:[0,2,2,1,0,0], fingers:[1,3,4,2,1,1], baseFret:12, barre:{fret:12,from:0,to:5} },
+    ],
+    piano:   [
+      { name:'E maior',     notes:['E','G#','B'] },
+      { name:'E c/ oitava', notes:['E','G#','B','E2'] },
+    ],
+    bass:    [
+      { name:'E raiz', strings:[0,-1,-1,-1], fingers:[0,0,0,0] },
+      { name:'E (5ª)', strings:[0,2,-1,-1],  fingers:[0,2,0,0] },
+    ],
+    ukulele: [
+      { name:'E',   strings:[4,4,4,2], fingers:[2,3,4,1], baseFret:2, barre:{fret:2,from:0,to:3} },
+      { name:'E7',  strings:[1,2,0,2], fingers:[1,2,0,3] },
+    ],
+  },
+  'A':  {
+    guitar:  [
+      { name:'A aberto', strings:[-1,0,2,2,2,0], fingers:[0,0,1,2,3,0] },
+      { name:'A barre',  strings:[5,7,7,6,5,5],  fingers:[1,3,4,2,1,1], baseFret:5, barre:{fret:5,from:0,to:5} },
+      { name:'A7',       strings:[-1,0,2,0,2,0], fingers:[0,0,2,0,3,0] },
+    ],
+    piano:   [
+      { name:'A maior',     notes:['A','C#','E'] },
+      { name:'A c/ oitava', notes:['A','C#','E','A2'] },
+    ],
+    bass:    [
+      { name:'A raiz', strings:[-1,0,-1,-1], fingers:[0,0,0,0] },
+      { name:'A (5ª)', strings:[0,0,2,-1],   fingers:[0,0,2,0] },
+    ],
+    ukulele: [
+      { name:'A',   strings:[2,1,0,0], fingers:[2,1,0,0] },
+      { name:'A7',  strings:[0,1,0,0], fingers:[0,1,0,0] },
+    ],
+  },
+  'F':  {
+    guitar:  [
+      { name:'F barre',  strings:[1,3,3,2,1,1], fingers:[1,3,4,2,1,1], baseFret:1, barre:{fret:1,from:0,to:5} },
+      { name:'F mini',   strings:[-1,-1,3,2,1,1], fingers:[0,0,3,2,1,1], barre:{fret:1,from:4,to:5} },
+      { name:'Fmaj7',    strings:[-1,-1,3,2,1,0], fingers:[0,0,3,2,1,0] },
+    ],
+    piano:   [
+      { name:'F maior',     notes:['F','A','C2'] },
+      { name:'F c/ oitava', notes:['F','A','C2','F2'] },
+    ],
+    bass:    [
+      { name:'F raiz', strings:[1,3,-1,-1], fingers:[1,3,0,0] },
+      { name:'F (5ª)', strings:[-1,-1,3,3], fingers:[0,0,2,1], baseFret:2 },
+    ],
+    ukulele: [
+      { name:'F',    strings:[2,0,1,0], fingers:[2,0,1,0] },
+      { name:'Fmaj7',strings:[2,4,1,0], fingers:[2,4,1,0] },
+    ],
+  },
+  'Am': {
+    guitar:  [
+      { name:'Am aberto', strings:[-1,0,2,2,1,0], fingers:[0,0,2,3,1,0] },
+      { name:'Am barre',  strings:[5,7,7,6,5,5],  fingers:[1,3,4,2,1,1], baseFret:5, barre:{fret:5,from:0,to:5} },
+      { name:'Am7',       strings:[-1,0,2,0,1,0], fingers:[0,0,2,0,1,0] },
+    ],
+    piano:   [
+      { name:'Am',         notes:['A','C2','E2'] },
+      { name:'Am oitava',  notes:['A','C2','E2','A2'] },
+      { name:'1ª inversão',notes:['E','A','C2'] },
+    ],
+    bass:    [
+      { name:'Am raiz', strings:[0,-1,-1,-1], fingers:[0,0,0,0] },
+      { name:'Am (5ª)', strings:[-1,-1,2,2],  fingers:[0,0,1,1] },
+    ],
+    ukulele: [
+      { name:'Am',  strings:[2,0,0,0], fingers:[1,0,0,0] },
+      { name:'Am7', strings:[0,0,0,0], fingers:[0,0,0,0] },
+    ],
+  },
+  'Em': {
+    guitar:  [
+      { name:'Em aberto', strings:[0,2,2,0,0,0], fingers:[0,2,3,0,0,0] },
+      { name:'Em7',       strings:[0,2,2,0,3,0], fingers:[0,2,3,0,4,0] },
+      { name:'Em barre',  strings:[7,9,9,8,7,7], fingers:[1,3,4,2,1,1], baseFret:7, barre:{fret:7,from:0,to:5} },
+    ],
+    piano:   [
+      { name:'Em',         notes:['E','G','B'] },
+      { name:'Em oitava',  notes:['E','G','B','E2'] },
+    ],
+    bass:    [
+      { name:'Em raiz', strings:[0,2,-1,-1], fingers:[0,2,0,0] },
+      { name:'Em (5ª)', strings:[-1,-1,2,4], fingers:[0,0,1,3] },
+    ],
+    ukulele: [
+      { name:'Em',  strings:[0,4,3,2], fingers:[0,3,2,1] },
+      { name:'Em7', strings:[0,2,0,2], fingers:[0,2,0,3] },
+    ],
+  },
+  'Dm': {
+    guitar:  [
+      { name:'Dm aberto', strings:[-1,-1,0,2,3,1], fingers:[0,0,0,2,3,1] },
+      { name:'Dm barre',  strings:[5,6,7,7,6,5],   fingers:[1,2,4,3,2,1], baseFret:5, barre:{fret:5,from:0,to:5} },
+      { name:'Dm7',       strings:[-1,-1,0,2,1,1], fingers:[0,0,0,2,1,1], barre:{fret:1,from:4,to:5} },
+    ],
+    piano:   [
+      { name:'Dm',        notes:['D','F','A'] },
+      { name:'Dm oitava', notes:['D','F','A','D2'] },
+    ],
+    bass:    [
+      { name:'Dm raiz', strings:[-1,-1,0,0], fingers:[0,0,0,0] },
+      { name:'Dm (5ª)', strings:[3,3,-1,-1], fingers:[1,1,0,0], baseFret:2 },
+    ],
+    ukulele: [
+      { name:'Dm',  strings:[2,2,1,0], fingers:[2,3,1,0] },
+      { name:'Dm7', strings:[2,2,1,3], fingers:[2,3,1,4] },
+    ],
+  },
+  'B':  {
+    guitar:  [
+      { name:'B barre',  strings:[-1,2,4,4,4,2], fingers:[0,1,3,3,3,1], baseFret:2, barre:{fret:2,from:1,to:5} },
+      { name:'B (7ª)',   strings:[-1,2,4,2,4,2], fingers:[0,1,3,1,4,1], baseFret:2, barre:{fret:2,from:1,to:5} },
+    ],
+    piano:   [
+      { name:'B maior',     notes:['B','D#','F#'] },
+      { name:'B c/ oitava', notes:['B','D#','F#','B2'] },
+    ],
+    bass:    [
+      { name:'B raiz', strings:[-1,2,-1,-1], fingers:[0,2,0,0] },
+      { name:'B (5ª)', strings:[-1,2,4,-1],  fingers:[0,1,3,0] },
+    ],
+    ukulele: [
+      { name:'B',  strings:[4,3,2,2], fingers:[4,3,1,2] },
+    ],
+  },
+  'Bm': {
+    guitar:  [
+      { name:'Bm barre', strings:[-1,2,4,4,3,2], fingers:[0,1,3,4,2,1], baseFret:2, barre:{fret:2,from:1,to:5} },
+      { name:'Bm7',      strings:[-1,2,0,2,0,2], fingers:[0,1,0,2,0,3] },
+    ],
+    piano:   [
+      { name:'Bm',        notes:['B','D','F#'] },
+      { name:'Bm oitava', notes:['B','D','F#','B2'] },
+    ],
+    bass:    [
+      { name:'Bm raiz', strings:[-1,2,-1,-1], fingers:[0,2,0,0] },
+      { name:'Bm (5ª)', strings:[-1,2,4,-1],  fingers:[0,1,3,0] },
+    ],
+    ukulele: [
+      { name:'Bm', strings:[4,2,2,2], fingers:[4,1,2,3], baseFret:2, barre:{fret:2,from:1,to:3} },
+    ],
+  },
+};
+
+const WHITE_NOTES = ['C','D','E','F','G','A','B','C2','D2','E2','F2','G2','A2','B2'];
+const BLACK_NOTES = { 'C#':0,'D#':1,'F#':3,'G#':4,'A#':5,'C#2':7,'D#2':8,'F#2':10,'G#2':11,'A#2':12 };
+const STR_GUITAR  = ['E','A','D','G','B','e'];
+const STR_BASS    = ['E','A','D','G'];
+const STR_UKE     = ['G','C','E','A'];
+
+let chordPopupInst = 'guitar';
+let chordPopupVar  = 0;
+let chordPopupName = '';
+
+function openChordPopup(chord) {
+  const root = chord.split('/')[0];
+  chordPopupName = root;
+  chordPopupVar  = 0;
+  $('chord-popup-title').textContent = chord;
+  // Reset tabs
+  document.querySelectorAll('.chord-inst-tab').forEach(t => t.classList.toggle('active', t.dataset.inst === chordPopupInst));
+  $('chord-overlay').classList.add('open');
+  $('chord-popup').classList.add('open');
+  renderChordPopup();
+}
+
+function closeChordPopup() {
+  $('chord-overlay').classList.remove('open');
+  $('chord-popup').classList.remove('open');
+}
+
+function chordSelectInst(tab) {
+  document.querySelectorAll('.chord-inst-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  chordPopupInst = tab.dataset.inst;
+  chordPopupVar  = 0;
+  renderChordPopup();
+}
+
+function getChordEntry() {
+  const data = CHORD_DB[chordPopupName];
+  if (!data) {
+    // Fallback: strip minor/major qualifier to try root
+    const rootOnly = chordPopupName.replace(/m.*|M.*|dim.*|aug.*|sus.*|add.*/, '');
+    return CHORD_DB[rootOnly] || null;
+  }
+  return data;
+}
+
+function renderChordPopup() {
+  const entry = getChordEntry();
+  const varRow = $('chord-var-row');
+  const track  = $('chord-diagram-track');
+
+  if (!entry) {
+    varRow.innerHTML = '';
+    track.innerHTML  = `<div class="chord-diagram-slide" style="color:var(--text-dim);font-family:var(--font-mono);font-size:12px;text-align:center;">Acorde sem dados ainda.<br><br>Toque em ✎ EDITAR para<br>adicionar a posição manualmente.</div>`;
+    return;
+  }
+
+  const vars = entry[chordPopupInst] || [];
+
+  // Variation dots
+  varRow.innerHTML = `<span class="chord-var-label">Variação</span>`;
+  vars.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'chord-var-dot' + (i === chordPopupVar ? ' active' : '');
+    d.onclick = () => selectChordVar(i);
+    varRow.appendChild(d);
+  });
+
+  // Build all slides
+  track.innerHTML = '';
+  track.style.transform = `translateX(-${chordPopupVar * 100}%)`;
+  vars.forEach(v => {
+    const slide = document.createElement('div');
+    slide.className = 'chord-diagram-slide';
+    if (chordPopupInst === 'piano') {
+      slide.appendChild(buildPianoDiagram(v));
+    } else {
+      const strLabels = chordPopupInst === 'bass' ? STR_BASS : chordPopupInst === 'ukulele' ? STR_UKE : STR_GUITAR;
+      slide.appendChild(buildFretDiagram(v, strLabels));
+    }
+    track.appendChild(slide);
+  });
+}
+
+function selectChordVar(idx) {
+  chordPopupVar = idx;
+  document.querySelectorAll('.chord-var-dot').forEach((d, i) => d.classList.toggle('active', i === idx));
+  $('chord-diagram-track').style.transform = `translateX(-${idx * 100}%)`;
+}
+
+// ── Fretboard builder ──
+function buildFretDiagram(data, strLabels) {
+  const count    = strLabels.length;
+  const baseFret = data.baseFret || 1;
+  const strings  = data.strings.slice(0, count);
+  const fingers  = data.fingers.slice(0, count);
+  const barre    = data.barre;
+  const FRETS    = 4;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'gd-wrap';
+
+  // Name
+  const lbl = document.createElement('div');
+  lbl.className = 'gd-label'; lbl.textContent = data.name;
+  wrap.appendChild(lbl);
+
+  // Open/mute row
+  const topRow = document.createElement('div');
+  topRow.className = 'gd-top-row';
+  // spacer for fret number column
+  const spc = document.createElement('div'); spc.style.width = '24px';
+  topRow.appendChild(spc);
+  strings.forEach(s => {
+    const c = document.createElement('div');
+    c.className = 'gd-open-cell' + (s === -1 ? ' mute' : '');
+    c.textContent = s === -1 ? '✕' : s === 0 ? '○' : '';
+    topRow.appendChild(c);
+  });
+  wrap.appendChild(topRow);
+
+  // Grid wrapper
+  const gridWrap = document.createElement('div');
+  gridWrap.className = 'gd-grid-wrap';
+
+  // Fret number
+  const fretNumEl = document.createElement('div');
+  fretNumEl.className = 'gd-fret-num';
+  fretNumEl.textContent = baseFret > 1 ? baseFret + 'fr' : '';
+  gridWrap.appendChild(fretNumEl);
+
+  const grid = document.createElement('div');
+  grid.className = 'gd-grid';
+
+  // Nut
+  if (baseFret === 1) {
+    const nut = document.createElement('div');
+    nut.className = 'gd-nut';
+    nut.style.width = (count * 36) + 'px';
+    grid.appendChild(nut);
+  }
+
+  // Fret rows
+  for (let f = 0; f < FRETS; f++) {
+    const actual = baseFret + f;
+    const row = document.createElement('div');
+    row.className = 'gd-frow';
+
+    for (let s = 0; s < count; s++) {
+      const cell = document.createElement('div');
+      cell.className = 'gd-cell';
+
+      if (strings[s] === actual) {
+        // Barre spanning from this string?
+        if (barre && barre.fret === actual && s === barre.from) {
+          const barWidth = (barre.to - barre.from) * 36 + 20;
+          const b = document.createElement('div');
+          b.className = 'gd-barre-bar';
+          b.style.width = barWidth + 'px';
+          b.style.left  = '8px';
+          b.textContent  = fingers[s] || '';
+          cell.appendChild(b);
+        } else if (!(barre && barre.fret === actual && s > barre.from && s <= barre.to)) {
+          const dot = document.createElement('div');
+          dot.className = 'gd-dot';
+          dot.textContent = fingers[s] > 0 ? fingers[s] : '';
+          cell.appendChild(dot);
+        }
+      }
+      row.appendChild(cell);
+    }
+    grid.appendChild(row);
+  }
+  gridWrap.appendChild(grid);
+  wrap.appendChild(gridWrap);
+
+  // String labels
+  const strRow = document.createElement('div');
+  strRow.className = 'gd-bottom-row';
+  const strSpc = document.createElement('div'); strSpc.style.width = '24px';
+  strRow.appendChild(strSpc);
+  strLabels.forEach(n => {
+    const l = document.createElement('div');
+    l.className = 'gd-str-label'; l.textContent = n;
+    strRow.appendChild(l);
+  });
+  wrap.appendChild(strRow);
+
+  return wrap;
+}
+
+// ── Piano builder ──
+function buildPianoDiagram(data) {
+  const active = new Set(data.notes);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'pd-wrap';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'pd-label'; lbl.textContent = data.name;
+  wrap.appendChild(lbl);
+
+  const keys = document.createElement('div');
+  keys.className = 'pd-keys';
+  keys.style.width = (WHITE_NOTES.length * 32) + 'px';
+
+  WHITE_NOTES.forEach(n => {
+    const k = document.createElement('div');
+    k.className = 'pd-white' + (active.has(n) ? ' active' : '');
+    const lb = document.createElement('div');
+    lb.className = 'pd-knote'; lb.textContent = n.replace('2','');
+    k.appendChild(lb); keys.appendChild(k);
+  });
+
+  Object.entries(BLACK_NOTES).forEach(([note, wIdx]) => {
+    const k = document.createElement('div');
+    k.className = 'pd-black' + (active.has(note) ? ' active' : '');
+    k.style.left = (wIdx * 32 + 21) + 'px';
+    const lb = document.createElement('div');
+    lb.className = 'pd-knote'; lb.textContent = note.replace('2','');
+    k.appendChild(lb); keys.appendChild(k);
+  });
+
+  wrap.appendChild(keys);
+
+  const notesEl = document.createElement('div');
+  notesEl.className = 'pd-notes';
+  notesEl.textContent = 'Notas: ' + data.notes.map(n => n.replace('2','')).join(' – ');
+  wrap.appendChild(notesEl);
+
+  return wrap;
+}
+

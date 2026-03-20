@@ -30,11 +30,10 @@ html, body {
 .screen.active { display: flex; flex-direction: column; }
 
 /* ── SETUP ── */
-/* DEPOIS */
 #screen-setup {
   align-items: center; justify-content: center;
   padding: 28px 22px; background: var(--bg);
-  position: relative; overflow-y: auto; overflow-x: hidden;
+  position: relative; overflow-y: auto;
 }
 #screen-setup::before {
   content: ''; position: absolute;
@@ -527,6 +526,152 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
 .btn-bkp.exp { background: var(--blue); color: white; }
 .btn-bkp.imp { background: var(--surface2); color: var(--text); border: 1px solid var(--border2); }
 .btn-bkp.cls { background: none; color: var(--text-muted); border: 1px solid var(--border); margin-top: 2px; }
+
+/* ══════════════════════════════════════
+   CHORD POPUP
+══════════════════════════════════════ */
+#chord-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 1100; display: none;
+}
+#chord-overlay.open { display: block; }
+
+#chord-popup {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border2);
+  border-radius: 22px 22px 0 0;
+  z-index: 1101;
+  transform: translateY(100%);
+  transition: transform 0.32s cubic-bezier(0.4,0,0.2,1);
+  max-height: 80vh;
+  display: flex; flex-direction: column;
+}
+#chord-popup.open { transform: translateY(0); }
+
+.chord-popup-handle {
+  width: 38px; height: 4px; background: var(--border2);
+  border-radius: 2px; margin: 13px auto 0; flex-shrink: 0;
+}
+.chord-popup-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 20px 0; flex-shrink: 0;
+}
+.chord-popup-name {
+  font-family: var(--font-mono); font-size: 28px;
+  font-weight: 700; color: var(--accent);
+}
+.chord-popup-close {
+  width: 30px; height: 30px; background: var(--surface2);
+  border: 1px solid var(--border2); border-radius: 50%;
+  color: var(--text-dim); font-size: 16px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* Instrument tabs */
+.chord-inst-tabs {
+  display: flex; gap: 6px; padding: 12px 20px 0;
+  overflow-x: auto; scrollbar-width: none; flex-shrink: 0;
+}
+.chord-inst-tabs::-webkit-scrollbar { display: none; }
+.chord-inst-tab {
+  padding: 6px 14px; border-radius: 20px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.5px; text-transform: uppercase; cursor: pointer;
+  background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--text-dim); white-space: nowrap; flex-shrink: 0;
+  transition: all 0.15s;
+}
+.chord-inst-tab.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
+/* Variation dots */
+.chord-var-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 20px 0; flex-shrink: 0;
+}
+.chord-var-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--border2); cursor: pointer; transition: background 0.15s;
+}
+.chord-var-dot.active { background: var(--accent); }
+.chord-var-label {
+  font-family: var(--font-mono); font-size: 9px;
+  color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; margin-right: 4px;
+}
+
+/* Diagram area */
+.chord-diagram-scroll { flex: 1; overflow: hidden; min-height: 0; }
+.chord-diagram-track {
+  display: flex; height: 100%;
+  transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+}
+.chord-diagram-slide {
+  flex-shrink: 0; width: 100%;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px 20px 32px; overflow-y: auto;
+}
+
+/* ── Fretboard ── */
+.gd-wrap  { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.gd-label { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
+.gd-top-row { display: flex; }
+.gd-open-cell {
+  width: 36px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 13px; font-weight: 700;
+  color: var(--text-dim);
+}
+.gd-open-cell.mute { color: var(--danger); }
+.gd-grid-wrap { display: flex; align-items: flex-start; gap: 4px; }
+.gd-fret-num {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);
+  width: 20px; text-align: right; padding-top: 5px; flex-shrink: 0;
+}
+.gd-grid { display: flex; flex-direction: column; }
+.gd-nut { height: 5px; background: var(--text); border-radius: 2px; margin-bottom: 0; }
+.gd-frow { display: flex; }
+.gd-cell {
+  width: 36px; height: 30px;
+  border-right: 1px solid var(--border2);
+  border-bottom: 1px solid var(--border2);
+  position: relative; display: flex; align-items: center; justify-content: center;
+}
+.gd-cell:first-child { border-left: 1px solid var(--border2); }
+.gd-dot {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent); position: absolute;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: #000;
+  z-index: 2;
+}
+.gd-barre-bar {
+  position: absolute; height: 22px;
+  background: var(--accent); border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: #000;
+  z-index: 2; top: 4px;
+}
+.gd-bottom-row { display: flex; margin-top: 4px; }
+.gd-str-label {
+  width: 36px; text-align: center;
+  font-family: var(--font-mono); font-size: 9px; color: var(--text-muted);
+}
+
+/* ── Piano ── */
+.pd-wrap    { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.pd-label   { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
+.pd-keys    { position: relative; display: flex; height: 110px; border: 1px solid var(--border2); border-radius: 0 0 6px 6px; overflow: hidden; }
+.pd-white   { width: 32px; height: 110px; background: #e8e4dc; border-right: 1px solid #999; flex-shrink: 0; position: relative; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 5px; }
+.pd-white:last-child { border-right: none; }
+.pd-black   { width: 20px; height: 68px; background: #111; border: 1px solid #333; border-top: none; position: absolute; z-index: 2; border-radius: 0 0 4px 4px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px; }
+.pd-white.active { background: var(--accent); }
+.pd-black.active { background: #c47d00; }
+.pd-knote   { font-family: var(--font-mono); font-size: 8px; font-weight: 700; color: #444; }
+.pd-white.active .pd-knote { color: #000; }
+.pd-black .pd-knote { color: #777; font-size: 7px; }
+.pd-black.active .pd-knote { color: #000; }
+.pd-notes   { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); letter-spacing: 0.5px; }
 
 /* ── TOAST ── */
 #toast {
