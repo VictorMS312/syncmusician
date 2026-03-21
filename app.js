@@ -304,21 +304,18 @@ function chordSpan(chord) {
   return `<span class="chord" onclick="openChordPopup('${safe}')">${chord}</span>`;
 }
 
-// ── Mode A: content came with <b> tags (Cifra Club / Cifras.com format) ──
-function renderFromBTags(text) {
-  return text
-    // Convert <br>, <br/>, <br /> to newlines first
-    .replace(/<br\s*\/?>/gi, '\n')
-    // Wrap chord tags as tappable spans
-    .replace(/<b>([^<]*)<\/b>/gi, (_, chord) => {
-      const c = chord.trim();
-      return c ? chordSpan(c) : '';
-    })
-    // Strip any remaining HTML tags (spans, divs, etc from the site)
-    .replace(/<[^>]+>/g, '')
-    // Decode common HTML entities
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&nbsp;/g, ' ').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n));
+// Converte HTML do backend em texto puro preservando quebras de linha
+function htmlParaTexto(html) {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')   // <br> → newline
+    .replace(/<[^>]+>/g, '')          // remove todas as outras tags
+    .replace(/&amp;/g,  '&')
+    .replace(/&lt;/g,   '<')
+    .replace(/&gt;/g,   '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n))
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
 }
 
 // ── Mode B: plain text — detect chord lines heuristically ──
@@ -361,17 +358,21 @@ function renderFromPlainText(text) {
   ).join('\n');
 }
 
-// ── Main renderer: picks mode automatically ──
+// ── Main renderer: always plain text ──
 function renderCifra(text) {
-  const hasBTags = /<b>/i.test(text);
-  cifraContainer.innerHTML = hasBTags
-    ? renderFromBTags(text)
-    : renderFromPlainText(text);
+  // Limpa qualquer HTML residual que possa ter sido salvo antes
+  const plain = /<[a-z]/i.test(text)
+    ? text.replace(/<br\s*\/?>/gi,'\n').replace(/<b>([^<]*)<\/b>/gi,'$1').replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&nbsp;/g,' ')
+    : text;
+  cifraContainer.innerHTML = renderFromPlainText(plain);
 }
 
-// chordify() is still used by medley line injection
+// chordify() used by medley injection
 function chordify(text) {
-  return /<b>/i.test(text) ? renderFromBTags(text) : renderFromPlainText(text);
+  const plain = /<[a-z]/i.test(text)
+    ? text.replace(/<br\s*\/?>/gi,'\n').replace(/<b>([^<]*)<\/b>/gi,'$1').replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&nbsp;/g,' ')
+    : text;
+  return renderFromPlainText(plain);
 }
 
 // ════════════════════════════════════
@@ -709,8 +710,18 @@ async function importLink() {
     const res  = await fetch(`https://syncmusician.onrender.com/get-cifra?url=${encodeURIComponent(url)}`);
     const data = await res.json();
     if (!data.cifra) throw new Error('sem conteúdo');
-    const id   = Date.now().toString();
-    db.biblioteca.push({ id, url, title: data.titulo || 'Sem título', content: data.cifra, originalTone: 'C' });
+
+    // Converte o HTML do backend para texto puro, preservando quebras de linha
+    const plain = data.cifra
+      .replace(/<br\s*\/?>/gi, '\n')   // <br> → nova linha
+      .replace(/<b>([^<]*)<\/b>/gi, '$1') // <b>Am</b> → Am  (remove só a tag)
+      .replace(/<[^>]+>/g, '')           // remove qualquer outra tag HTML
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+      .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n));
+
+    const id = Date.now().toString();
+    db.biblioteca.push({ id, url, title: data.titulo || 'Sem título', content: plain, originalTone: 'C' });
     db.pastas[pastaAtiva].push(id);
     salvarDB(); closeLibrary(); openFolder(pastaAtiva);
     $('url-input').value = '';
