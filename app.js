@@ -677,9 +677,106 @@ function jumpToMedley() {
 // ════════════════════════════════════
 function openLibrary() {
   $('modal-library').classList.add('open');
-  renderLibraryList();
+  // Default to search tab
+  document.querySelectorAll('.lib-tab').forEach((t,i) => t.classList.toggle('active', i===0));
+  document.querySelectorAll('.lib-tab-content').forEach((t,i) => t.classList.toggle('active', i===0));
 }
 function closeLibrary() { $('modal-library').classList.remove('open'); }
+
+function switchLibTab(btn) {
+  document.querySelectorAll('.lib-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.lib-tab-content').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  $('tab-' + btn.dataset.tab).classList.add('active');
+  if (btn.dataset.tab === 'link') renderLibraryList();
+}
+
+// ── Busca ──
+let searchCurrentPage = 1;
+
+async function buscarMusica(loadMore) {
+  const query = $('search-input').value.trim();
+  if (!query) { showToast('Digite o nome da música'); return; }
+
+  const btn = $('btn-search');
+  btn.disabled = true; btn.textContent = '...';
+
+  if (!loadMore) {
+    searchCurrentPage = 1;
+    $('search-results-area').innerHTML = '<div class="search-empty">Buscando...</div>';
+  }
+
+  try {
+    const res  = await fetch(`https://syncmusician.onrender.com/search?q=${encodeURIComponent(query)}&page=${searchCurrentPage}`);
+    const data = await res.json();
+
+    const area = $('search-results-area');
+
+    if (!loadMore) area.innerHTML = '';
+
+    if (!data.results || data.results.length === 0) {
+      area.innerHTML = '<div class="search-empty">Nenhum resultado encontrado.</div>';
+      return;
+    }
+
+    data.results.forEach(r => {
+      const card = document.createElement('div');
+      card.className = 'search-result-card';
+      card.innerHTML = `
+        <div class="search-result-info">
+          <div class="search-result-title">${r.title}</div>
+          <div class="search-result-artist">${r.artist || '—'}</div>
+        </div>
+        <button class="btn-search-add" onclick="importarDaBusca('${esc(r.url)}', '${esc(r.title)}', this)">ADD</button>`;
+      area.appendChild(card);
+    });
+
+    // Botão "Ver mais"
+    const existing = area.querySelector('.btn-load-more');
+    if (existing) existing.remove();
+
+    if (data.hasMore) {
+      const more = document.createElement('button');
+      more.className = 'btn-load-more';
+      more.textContent = 'VER MAIS';
+      more.onclick = () => { searchCurrentPage++; buscarMusica(true); };
+      area.appendChild(more);
+    }
+
+  } catch {
+    showToast('Erro na busca. Tente novamente.');
+    if (!loadMore) $('search-results-area').innerHTML = '<div class="search-empty">Erro na busca.</div>';
+  } finally {
+    btn.disabled = false; btn.textContent = 'BUSCAR';
+  }
+}
+
+async function importarDaBusca(url, title, btn) {
+  btn.disabled = true; btn.textContent = '...';
+
+  // Verifica se já existe na biblioteca
+  const existing = db.biblioteca.find(m => m.url === url);
+  if (existing) {
+    addFromLibrary(existing.id);
+    return;
+  }
+
+  try {
+    const res  = await fetch(`https://syncmusician.onrender.com/get-cifra?url=${encodeURIComponent(url)}`);
+    const data = await res.json();
+    if (!data.cifra) throw new Error('sem conteúdo');
+
+    const plain = htmlParaTexto(data.cifra);
+    const id    = Date.now().toString();
+    db.biblioteca.push({ id, url, title: data.titulo || title, content: plain, originalTone: 'C' });
+    db.pastas[pastaAtiva].push(id);
+    salvarDB(); closeLibrary(); openFolder(pastaAtiva);
+    showToast('Música importada!');
+  } catch {
+    btn.disabled = false; btn.textContent = 'ADD';
+    showToast('Erro ao importar. Tente o link direto.');
+  }
+}
 
 function renderLibraryList() {
   const list = $('library-list');
@@ -702,8 +799,6 @@ function renderLibraryList() {
 async function importLink() {
   let url = $('url-input').value.trim();
   if (!url) return;
-
-  // Normaliza: adiciona https:// se não tiver protocolo
   if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
 
   const existing = db.biblioteca.find(m => m.url === url);
@@ -715,32 +810,23 @@ async function importLink() {
     const res  = await fetch(`https://syncmusician.onrender.com/get-cifra?url=${encodeURIComponent(url)}`);
     const data = await res.json();
     if (!data.cifra) throw new Error('sem conteúdo');
-
     const plain = htmlParaTexto(data.cifra);
-
-    const id = Date.now().toString();
+    const id    = Date.now().toString();
     db.biblioteca.push({ id, url, title: data.titulo || 'Sem título', content: plain, originalTone: 'C' });
     db.pastas[pastaAtiva].push(id);
     salvarDB(); closeLibrary(); openFolder(pastaAtiva);
     $('url-input').value = '';
     showToast('Música importada!');
   } catch {
-    showToast('Link não suportado — cole a cifra manualmente ↓');
-    toggleManualPaste(true);
+    showToast('Link não suportado — tente a aba Manual.');
   }
   finally { btn.textContent = 'IMPORTAR LINK'; btn.disabled = false; }
-}
-
-function toggleManualPaste(forceOpen) {
-  const area = $('manual-paste-area');
-  const isOpen = area.style.display === 'flex';
-  area.style.display = (forceOpen || !isOpen) ? 'flex' : 'none';
 }
 
 function saveManual() {
   const title   = $('manual-title-input').value.trim();
   const content = $('manual-cifra-input').value.trim();
-  if (!title) { showToast('Digite o nome da música'); return; }
+  if (!title)   { showToast('Digite o nome da música'); return; }
   if (!content) { showToast('Cole o conteúdo da cifra'); return; }
   const id = Date.now().toString();
   db.biblioteca.push({ id, url: '', title, content, originalTone: 'C' });

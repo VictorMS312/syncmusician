@@ -477,26 +477,76 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
 .btn-lib-add { background: rgba(59,130,246,0.13); color: var(--blue); border: 1px solid rgba(59,130,246,0.2); border-radius: 7px; padding: 5px 11px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; cursor: pointer; }
 .lib-check { font-size: 15px; color: var(--accent2); }
 
-/* manual paste toggle */
-.btn-manual-toggle {
-  width: 100%; padding: 10px; border-radius: 9px;
-  background: none; border: 1px dashed var(--border2);
+/* ── Library tabs ── */
+.lib-tabs {
+  display: flex; gap: 0; padding: 0 18px 0; flex-shrink: 0;
+  border-bottom: 1px solid var(--border); margin-bottom: 0;
+}
+.lib-tab {
+  flex: 1; padding: 10px 6px; border: none; background: none;
   color: var(--text-dim); font-family: var(--font-mono);
-  font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  text-transform: uppercase; cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.lib-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.lib-tab-content { display: none; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.lib-tab-content.active { display: flex; }
+
+/* ── Search ── */
+.search-row { display: flex; gap: 8px; width: 100%; }
+.btn-search {
+  padding: 11px 16px; border: none; border-radius: 10px;
+  background: var(--accent2); color: #000;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.5px; cursor: pointer; white-space: nowrap;
+  flex-shrink: 0; transition: opacity 0.2s;
+}
+.btn-search:disabled { opacity: 0.45; }
+
+.search-empty {
+  color: var(--text-muted); font-family: var(--font-mono);
+  font-size: 12px; text-align: center; padding: 30px 0;
+}
+
+.search-result-card {
+  padding: 13px 0; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.search-result-card:last-of-type { border-bottom: none; }
+.search-result-info { flex: 1; min-width: 0; }
+.search-result-title {
+  font-size: 14px; font-weight: 700;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.search-result-artist {
+  font-size: 11px; color: var(--text-dim);
+  font-family: var(--font-mono); margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.btn-search-add {
+  background: var(--accent2); color: #000;
+  border: none; border-radius: 8px;
+  padding: 7px 14px; font-family: var(--font-mono);
+  font-size: 10px; font-weight: 700; cursor: pointer;
+  white-space: nowrap; flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+.btn-search-add:disabled { opacity: 0.45; }
+
+.btn-load-more {
+  width: 100%; padding: 11px; margin-top: 10px;
+  background: none; border: 1px dashed var(--border2);
+  border-radius: 9px; color: var(--text-dim);
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 1px; text-transform: uppercase;
   cursor: pointer; transition: border-color 0.15s, color 0.15s;
 }
-.btn-manual-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.btn-load-more:hover { border-color: var(--accent); color: var(--accent); }
 
-#manual-paste-area {
-  display: none; flex-direction: column; gap: 8px; margin-top: 2px;
-}
-#manual-title-input {
-  width: 100%; padding: 9px 12px;
-  background: var(--bg); border: 1px solid var(--border2);
-  border-radius: 9px; color: var(--text);
-  font-family: var(--font-mono); font-size: 13px; outline: none;
-}
-#manual-title-input:focus { border-color: var(--accent); }
+/* ── Manual paste ── */
 #manual-cifra-input {
   width: 100%; height: 120px; padding: 10px 12px;
   background: var(--bg); border: 1px solid var(--border2);

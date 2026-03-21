@@ -114,20 +114,51 @@
       <div class="modal-title">Adicionar Música</div>
       <button class="modal-close" onclick="closeLibrary()">✕</button>
     </div>
-    <div class="modal-body">
-      <input type="text" id="url-input" class="input-field" placeholder="Link do site de cifra..." style="width:100%;">
-      <button id="btn-import" class="btn-import" onclick="importLink()">IMPORTAR LINK</button>
-      <button class="btn-manual-toggle" onclick="toggleManualPaste()">✎ colar cifra manualmente</button>
-      <div id="manual-paste-area">
-        <input type="text" id="manual-title-input" class="input-field" placeholder="Nome da música">
+
+    <!-- Abas: Buscar / Link / Manual -->
+    <div class="lib-tabs">
+      <button class="lib-tab active" data-tab="search" onclick="switchLibTab(this)">🔍 Buscar</button>
+      <button class="lib-tab" data-tab="link"   onclick="switchLibTab(this)">🔗 Link</button>
+      <button class="lib-tab" data-tab="manual" onclick="switchLibTab(this)">✎ Manual</button>
+    </div>
+
+    <!-- Aba: Buscar -->
+    <div class="lib-tab-content active" id="tab-search">
+      <div class="modal-body">
+        <div class="search-row">
+          <input type="text" id="search-input" class="input-field"
+                 placeholder="Nome da música ou artista..."
+                 autocomplete="off" spellcheck="false"
+                 onkeydown="if(event.key==='Enter') buscarMusica()">
+          <button id="btn-search" class="btn-search" onclick="buscarMusica()">BUSCAR</button>
+        </div>
+      </div>
+      <div class="lib-scroll" id="search-results-area">
+        <div class="search-empty">Digite o nome da música acima</div>
+      </div>
+    </div>
+
+    <!-- Aba: Link -->
+    <div class="lib-tab-content" id="tab-link">
+      <div class="modal-body">
+        <input type="text" id="url-input" class="input-field" placeholder="Link direto da cifra..." style="width:100%;">
+        <button id="btn-import" class="btn-import" onclick="importLink()">IMPORTAR LINK</button>
+      </div>
+      <div class="lib-scroll">
+        <div class="lib-section-label">Biblioteca salva</div>
+        <div id="library-list"></div>
+      </div>
+    </div>
+
+    <!-- Aba: Manual -->
+    <div class="lib-tab-content" id="tab-manual">
+      <div class="modal-body">
+        <input type="text" id="manual-title-input" class="input-field" placeholder="Nome da música" style="width:100%;">
         <textarea id="manual-cifra-input" placeholder="Cole aqui o conteúdo da cifra..."></textarea>
         <button class="btn-manual-save" onclick="saveManual()">SALVAR CIFRA</button>
       </div>
     </div>
-    <div class="lib-scroll">
-      <div class="lib-section-label">Biblioteca salva</div>
-      <div id="library-list"></div>
-    </div>
+
   </div>
 </div>
 

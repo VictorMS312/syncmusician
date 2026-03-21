@@ -8,77 +8,105 @@ app.use(cors());
 
 const UA = 'Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
-// Resolve links curtos/compartilhamento seguindo redirects manualmente
+const AXIOS_CFG = {
+  headers: {
+    'User-Agent': UA,
+    'Accept-Language': 'pt-BR,pt;q=0.9',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  },
+  maxRedirects: 10,
+  timeout: 12000,
+};
+
+// ── Resolve links curtos/compartilhamento seguindo redirects ──
 async function resolveUrl(url) {
   try {
-    const response = await axios.get(url, {
-      headers: {
-        'User-Agent': UA,
-        'Accept-Language': 'pt-BR,pt;q=0.9',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      },
-      maxRedirects: 10,
-      timeout: 12000,
-      // Captura a URL final após todos os redirects
-      validateStatus: status => status < 400,
-    });
-    // axios armazena a URL final após redirects aqui:
-    return response.request?.res?.responseUrl
-        || response.request?.responseURL
-        || url;
-  } catch (e) {
-    // Se falhou na resolução, devolve a original e deixa o próximo passo tentar
-    return url;
-  }
+    const r = await axios.get(url, { ...AXIOS_CFG, validateStatus: s => s < 400 });
+    return r.request?.res?.responseUrl || r.request?.responseURL || url;
+  } catch { return url; }
 }
 
+// ── GET /search?q=nome+artista&page=1 ──
+// Busca músicas no Cifra Club e retorna 3 por vez
+app.get('/search', async (req, res) => {
+  const { q, page = 1 } = req.query;
+  if (!q) return res.status(400).json({ error: 'Parâmetro q é obrigatório' });
+
+  try {
+    const searchUrl = `https://www.cifraclub.com.br/busca/?q=${encodeURIComponent(q)}&page=${page}`;
+    const response  = await axios.get(searchUrl, AXIOS_CFG);
+    const $         = cheerio.load(response.data);
+
+    const results = [];
+
+    // Seletor principal dos resultados do Cifra Club
+    $('ul.js-search-results > li, .search-result, .gs-result').each((_, el) => {
+      const $el   = $(el);
+      const $link = $el.find('a[href*="/"]').first();
+      const href  = $link.attr('href') || '';
+      const title = ($el.find('b, strong, .title').first().text() || $link.text()).trim();
+      const artist = $el.find('.artist, .band, em').first().text().trim();
+      const url   = href.startsWith('http') ? href : 'https://www.cifraclub.com.br' + href;
+
+      // Só URLs no formato /artista/musica/
+      if (/cifraclub\.com/.test(url) && /^https:\/\/www\.cifraclub\.com\.br\/[^/]+\/[^/]+\/$/.test(url) && title) {
+        if (!results.find(r => r.url === url)) {
+          results.push({ title, artist, url });
+        }
+      }
+    });
+
+    // Fallback: varre todos os links da página
+    if (results.length === 0) {
+      $('a').each((_, el) => {
+        const href  = $(el).attr('href') || '';
+        const title = $(el).text().trim();
+        const url   = href.startsWith('http') ? href : 'https://www.cifraclub.com.br' + href;
+        if (/^https:\/\/www\.cifraclub\.com\.br\/[^/]+\/[^/]+\/$/.test(url) && title.length > 2) {
+          if (!results.find(r => r.url === url)) {
+            results.push({ title, artist: '', url });
+          }
+        }
+      });
+    }
+
+    const PAGE_SIZE = 3;
+    const start     = (Number(page) - 1) * PAGE_SIZE;
+    const slice     = results.slice(start, start + PAGE_SIZE);
+    const hasMore   = results.length > start + PAGE_SIZE;
+
+    res.json({ results: slice, hasMore, page: Number(page) });
+  } catch (error) {
+    res.status(500).json({ error: 'Erro na busca', details: error.message });
+  }
+});
+
+// ── GET /get-cifra?url=... ──
 app.get('/get-cifra', async (req, res) => {
   let { url } = req.query;
   if (!url) return res.status(400).json({ error: 'URL é obrigatória' });
 
   try {
-    // Passo 1: resolve links curtos/compartilhamento para URL final
-    const isShortLink = /share\.google|goo\.gl|bit\.ly|tinyurl|ow\.ly|t\.co|short/i.test(url);
-    if (isShortLink) {
+    // Resolve links curtos antes de buscar
+    if (/share\.google|goo\.gl|bit\.ly|tinyurl|ow\.ly|t\.co/i.test(url)) {
       url = await resolveUrl(url);
     }
 
-    // Passo 2: busca o conteúdo da página final
-    const response = await axios.get(url, {
-      headers: {
-        'User-Agent': UA,
-        'Accept-Language': 'pt-BR,pt;q=0.9',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      },
-      maxRedirects: 5,
-      timeout: 12000,
-    });
-
-    const $ = cheerio.load(response.data);
+    const response = await axios.get(url, AXIOS_CFG);
+    const $        = cheerio.load(response.data);
     const finalUrl = response.request?.res?.responseUrl || url;
 
-    let cifraHtml = null;
-    let titulo    = '';
-    let artista   = '';
+    let cifraHtml = null, titulo = '', artista = '';
 
-    // ── Cifra Club ──
     if (/cifraclub\.com/i.test(finalUrl)) {
       cifraHtml = $('pre').first().html();
       titulo    = $('h1.t1').text() || $('h1').first().text();
       artista   = $('h2.t3').text() || $('h2').first().text();
-    }
-
-    // ── Cifras.com ──
-    else if (/cifras\.com/i.test(finalUrl)) {
-      cifraHtml = $('pre').first().html()
-               || $('.cifra-content').first().html()
-               || $('[class*="cifra"]').first().html();
-      titulo  = $('h1').first().text();
-      artista = $('h2').first().text() || $('[class*="artist"]').first().text();
-    }
-
-    // ── Genérico: qualquer site com <pre> ──
-    else {
+    } else if (/cifras\.com/i.test(finalUrl)) {
+      cifraHtml = $('pre').first().html() || $('.cifra-content').first().html();
+      titulo    = $('h1').first().text();
+      artista   = $('h2').first().text();
+    } else {
       cifraHtml = $('pre').first().html();
       titulo    = $('h1').first().text();
       artista   = $('h2').first().text();
@@ -88,16 +116,9 @@ app.get('/get-cifra', async (req, res) => {
       return res.status(422).json({ error: 'Cifra não encontrada nesta página.' });
     }
 
-    res.json({
-      titulo:   titulo.trim(),
-      artista:  artista.trim(),
-      cifra:    cifraHtml,
-      urlFinal: finalUrl, // útil para debug
-    });
-
+    res.json({ titulo: titulo.trim(), artista: artista.trim(), cifra: cifraHtml });
   } catch (error) {
-    const status = error.response?.status || 500;
-    res.status(status).json({ error: 'Erro ao buscar cifra', details: error.message });
+    res.status(error.response?.status || 500).json({ error: 'Erro ao buscar cifra', details: error.message });
   }
 });
 
