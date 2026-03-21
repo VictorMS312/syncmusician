@@ -706,14 +706,6 @@ async function importLink() {
   // Normaliza: adiciona https:// se não tiver protocolo
   if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
 
-  // Links de compartilhamento do Google (share.google/...) redirecionam para
-  // a URL real — o backend com axios segue redirects, mas às vezes o Google
-  // retorna uma página intermediária. Orientamos o usuário a usar a URL direta.
-  if (/share\.google|goo\.gl|bit\.ly|tinyurl/i.test(url)) {
-    showToast('Use o link direto da página da cifra (não o link de compartilhamento)');
-    return;
-  }
-
   const existing = db.biblioteca.find(m => m.url === url);
   if (existing) { addFromLibrary(existing.id); $('url-input').value = ''; return; }
 

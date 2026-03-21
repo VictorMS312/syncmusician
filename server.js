@@ -8,12 +8,42 @@ app.use(cors());
 
 const UA = 'Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
+// Resolve links curtos/compartilhamento seguindo redirects manualmente
+async function resolveUrl(url) {
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': UA,
+        'Accept-Language': 'pt-BR,pt;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+      maxRedirects: 10,
+      timeout: 12000,
+      // Captura a URL final após todos os redirects
+      validateStatus: status => status < 400,
+    });
+    // axios armazena a URL final após redirects aqui:
+    return response.request?.res?.responseUrl
+        || response.request?.responseURL
+        || url;
+  } catch (e) {
+    // Se falhou na resolução, devolve a original e deixa o próximo passo tentar
+    return url;
+  }
+}
+
 app.get('/get-cifra', async (req, res) => {
-  const { url } = req.query;
+  let { url } = req.query;
   if (!url) return res.status(400).json({ error: 'URL é obrigatória' });
 
   try {
-    // Segue até 5 redirects, incluindo cross-domain (resolve share.google etc.)
+    // Passo 1: resolve links curtos/compartilhamento para URL final
+    const isShortLink = /share\.google|goo\.gl|bit\.ly|tinyurl|ow\.ly|t\.co|short/i.test(url);
+    if (isShortLink) {
+      url = await resolveUrl(url);
+    }
+
+    // Passo 2: busca o conteúdo da página final
     const response = await axios.get(url, {
       headers: {
         'User-Agent': UA,
@@ -31,14 +61,14 @@ app.get('/get-cifra', async (req, res) => {
     let titulo    = '';
     let artista   = '';
 
-    // ── Cifra Club ──────────────────────────────
+    // ── Cifra Club ──
     if (/cifraclub\.com/i.test(finalUrl)) {
       cifraHtml = $('pre').first().html();
       titulo    = $('h1.t1').text() || $('h1').first().text();
       artista   = $('h2.t3').text() || $('h2').first().text();
     }
 
-    // ── Cifras.com ──────────────────────────────
+    // ── Cifras.com ──
     else if (/cifras\.com/i.test(finalUrl)) {
       cifraHtml = $('pre').first().html()
                || $('.cifra-content').first().html()
@@ -47,7 +77,7 @@ app.get('/get-cifra', async (req, res) => {
       artista = $('h2').first().text() || $('[class*="artist"]').first().text();
     }
 
-    // ── Genérico: tenta <pre> em qualquer site ──
+    // ── Genérico: qualquer site com <pre> ──
     else {
       cifraHtml = $('pre').first().html();
       titulo    = $('h1').first().text();
@@ -59,9 +89,10 @@ app.get('/get-cifra', async (req, res) => {
     }
 
     res.json({
-      titulo:  titulo.trim(),
-      artista: artista.trim(),
-      cifra:   cifraHtml,
+      titulo:   titulo.trim(),
+      artista:  artista.trim(),
+      cifra:    cifraHtml,
+      urlFinal: finalUrl, // útil para debug
     });
 
   } catch (error) {
