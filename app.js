@@ -700,10 +700,23 @@ function renderLibraryList() {
 }
 
 async function importLink() {
-  const url = $('url-input').value.trim();
+  let url = $('url-input').value.trim();
   if (!url) return;
+
+  // Normaliza: adiciona https:// se não tiver protocolo
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+
+  // Links de compartilhamento do Google (share.google/...) redirecionam para
+  // a URL real — o backend com axios segue redirects, mas às vezes o Google
+  // retorna uma página intermediária. Orientamos o usuário a usar a URL direta.
+  if (/share\.google|goo\.gl|bit\.ly|tinyurl/i.test(url)) {
+    showToast('Use o link direto da página da cifra (não o link de compartilhamento)');
+    return;
+  }
+
   const existing = db.biblioteca.find(m => m.url === url);
   if (existing) { addFromLibrary(existing.id); $('url-input').value = ''; return; }
+
   const btn = $('btn-import');
   btn.textContent = 'IMPORTANDO...'; btn.disabled = true;
   try {
@@ -711,14 +724,7 @@ async function importLink() {
     const data = await res.json();
     if (!data.cifra) throw new Error('sem conteúdo');
 
-    // Converte o HTML do backend para texto puro, preservando quebras de linha
-    const plain = data.cifra
-      .replace(/<br\s*\/?>/gi, '\n')   // <br> → nova linha
-      .replace(/<b>([^<]*)<\/b>/gi, '$1') // <b>Am</b> → Am  (remove só a tag)
-      .replace(/<[^>]+>/g, '')           // remove qualquer outra tag HTML
-      .replace(/&amp;/g, '&').replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
-      .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n));
+    const plain = htmlParaTexto(data.cifra);
 
     const id = Date.now().toString();
     db.biblioteca.push({ id, url, title: data.titulo || 'Sem título', content: plain, originalTone: 'C' });
@@ -727,7 +733,7 @@ async function importLink() {
     $('url-input').value = '';
     showToast('Música importada!');
   } catch {
-    showToast('Site não suportado — cole a cifra manualmente ↓');
+    showToast('Link não suportado — cole a cifra manualmente ↓');
     toggleManualPaste(true);
   }
   finally { btn.textContent = 'IMPORTAR LINK'; btn.disabled = false; }
@@ -873,23 +879,46 @@ function startScanner() {
     html5QrCode.stop().catch(()=>{}).finally(() => { html5QrCode = null; _initScanner(); });
   } else { _initScanner(); }
 }
+
 function _initScanner() {
   html5QrCode = new Html5Qrcode('reader');
-  html5QrCode.start(
-    { facingMode: 'environment' },
-    { fps: 10, qrbox: { width: 230, height: 230 } },
-    decoded => { $('join-id').value = decoded; showToast('QR lido! ✓'); stopScanner(); }
-  ).catch(err => {
-    $('reader-container').style.display = 'none';
-    const isSecure = location.protocol === 'https:' || location.hostname === 'localhost';
-    showToast(isSecure ? 'Permissão de câmera negada' : 'Câmera exige HTTPS ou localhost');
-  });
+
+  // Try rear camera first, fall back to any available camera
+  const tryStart = (constraints) => {
+    return html5QrCode.start(
+      constraints,
+      { fps: 10, qrbox: { width: 220, height: 220 } },
+      decoded => { $('join-id').value = decoded; showToast('QR lido! ✓'); stopScanner(); }
+    );
+  };
+
+  tryStart({ facingMode: 'environment' })
+    .catch(() => tryStart({ facingMode: 'user' }))  // front camera fallback
+    .catch(() => {
+      // Last resort: let browser pick any camera
+      return Html5Qrcode.getCameras()
+        .then(cameras => {
+          if (!cameras || cameras.length === 0) throw new Error('no camera');
+          return html5QrCode.start(
+            cameras[cameras.length - 1].id,
+            { fps: 10, qrbox: { width: 220, height: 220 } },
+            decoded => { $('join-id').value = decoded; showToast('QR lido! ✓'); stopScanner(); }
+          );
+        });
+    })
+    .catch(() => {
+      $('reader-container').style.display = 'none';
+      html5QrCode = null;
+      const isSecure = location.protocol === 'https:' || location.hostname === 'localhost';
+      showToast(isSecure ? 'Permissão de câmera negada' : 'Câmera exige HTTPS');
+    });
 }
+
 function stopScanner() {
   if (!html5QrCode) return;
   html5QrCode.stop()
     .then(() => { $('reader-container').style.display = 'none'; html5QrCode = null; })
-    .catch(() => { $('reader-container').style.display = 'none'; });
+    .catch(() => { $('reader-container').style.display = 'none'; html5QrCode = null; });
 }
 
 // ════════════════════════════════════
