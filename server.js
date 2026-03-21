@@ -27,45 +27,68 @@ async function resolveUrl(url) {
 }
 
 // ── GET /search?q=nome+artista&page=1 ──
-// Busca músicas no Cifra Club e retorna 3 por vez
 app.get('/search', async (req, res) => {
   const { q, page = 1 } = req.query;
   if (!q) return res.status(400).json({ error: 'Parâmetro q é obrigatório' });
 
   try {
-    const searchUrl = `https://www.cifraclub.com.br/busca/?q=${encodeURIComponent(q)}&page=${page}`;
+    const searchUrl = `https://www.cifraclub.com.br/busca/?q=${encodeURIComponent(q)}`;
     const response  = await axios.get(searchUrl, AXIOS_CFG);
     const $         = cheerio.load(response.data);
 
     const results = [];
 
-    // Seletor principal dos resultados do Cifra Club
-    $('ul.js-search-results > li, .search-result, .gs-result').each((_, el) => {
-      const $el   = $(el);
-      const $link = $el.find('a[href*="/"]').first();
-      const href  = $link.attr('href') || '';
-      const title = ($el.find('b, strong, .title').first().text() || $link.text()).trim();
-      const artist = $el.find('.artist, .band, em').first().text().trim();
-      const url   = href.startsWith('http') ? href : 'https://www.cifraclub.com.br' + href;
+    // Cifra Club: resultados de músicas ficam em <a> dentro de .gs-title
+    // com URL no formato /artista/musica/
+    const SONG_URL_RE = /^https?:\/\/(?:www\.)?cifraclub\.com\.br\/[a-z0-9-]+\/[a-z0-9-]+\/$/i;
 
-      // Só URLs no formato /artista/musica/
-      if (/cifraclub\.com/.test(url) && /^https:\/\/www\.cifraclub\.com\.br\/[^/]+\/[^/]+\/$/.test(url) && title) {
-        if (!results.find(r => r.url === url)) {
-          results.push({ title, artist, url });
+    // Tenta seletores específicos de resultados do Cifra Club
+    const selectors = [
+      '.gs-webResult .gs-title a',
+      '.gs-result .gs-title a',
+      '.search-results a',
+      'article a[href]',
+      '.result a[href]',
+    ];
+
+    for (const sel of selectors) {
+      $(sel).each((_, el) => {
+        const $el    = $(el);
+        let   href   = $el.attr('href') || '';
+        if (!href.startsWith('http')) href = 'https://www.cifraclub.com.br' + href;
+
+        if (!SONG_URL_RE.test(href)) return; // só URLs de música
+
+        // Extrai artista e título do próprio href: /artista/musica/
+        const parts  = href.replace(/https?:\/\/[^/]+/, '').split('/').filter(Boolean);
+        if (parts.length !== 2) return;
+
+        const title  = ($el.text().trim() || parts[1].replace(/-/g, ' ')).replace(/\s+/g, ' ');
+        const artist = parts[0].replace(/-/g, ' ');
+
+        if (!results.find(r => r.url === href)) {
+          results.push({ title, artist, url: href });
         }
-      }
-    });
+      });
+      if (results.length >= 9) break; // suficiente para 3 páginas
+    }
 
-    // Fallback: varre todos os links da página
+    // Fallback final: varre a página inteira mas com URL estrita
     if (results.length === 0) {
-      $('a').each((_, el) => {
-        const href  = $(el).attr('href') || '';
-        const title = $(el).text().trim();
-        const url   = href.startsWith('http') ? href : 'https://www.cifraclub.com.br' + href;
-        if (/^https:\/\/www\.cifraclub\.com\.br\/[^/]+\/[^/]+\/$/.test(url) && title.length > 2) {
-          if (!results.find(r => r.url === url)) {
-            results.push({ title, artist: '', url });
-          }
+      $('a[href]').each((_, el) => {
+        let href = $(el).attr('href') || '';
+        if (!href.startsWith('http')) href = 'https://www.cifraclub.com.br' + href;
+
+        if (!SONG_URL_RE.test(href)) return;
+
+        const parts = href.replace(/https?:\/\/[^/]+/, '').split('/').filter(Boolean);
+        if (parts.length !== 2) return;
+
+        const title  = parts[1].replace(/-/g, ' ');
+        const artist = parts[0].replace(/-/g, ' ');
+
+        if (!results.find(r => r.url === href)) {
+          results.push({ title, artist, url: href });
         }
       });
     }
