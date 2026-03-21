@@ -37,7 +37,27 @@ window.onload = () => {
   const lastId = localStorage.getItem('last_leader_id');
   if (lastId) $('join-id').value = lastId;
   buildToneGrid();
+  migrarBiblioteca();
 };
+
+// Migra músicas antigas que foram salvas sem <b> tags ou com HTML mal formado
+function migrarBiblioteca() {
+  let changed = false;
+  db.biblioteca.forEach(m => {
+    if (!m.content) return;
+    // Se tem <br> mas não tem <b>, provavelmente veio do backend antigo sem tags de acorde
+    // Converte <br> em \n para pelo menos ter o texto legível
+    if (/<br/i.test(m.content) && !/<b>/i.test(m.content)) {
+      m.content = m.content
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&nbsp;/g, ' ');
+      changed = true;
+    }
+  });
+  if (changed) salvarDB();
+}
 
 function initRole(r) {
   role = r;
@@ -285,23 +305,48 @@ function chordSpan(chord) {
 }
 
 // ── Mode A: content came with <b> tags (Cifra Club / Cifras.com format) ──
-// <b> always marks a chord in these sites — trust it completely.
 function renderFromBTags(text) {
   return text
-    .replace(/<b>([^<]*)<\/b>/gi, (_, chord) => chordSpan(chord.trim()))
-    .replace(/<[^>]+>/g, '');   // strip any remaining HTML tags
+    // Convert <br>, <br/>, <br /> to newlines first
+    .replace(/<br\s*\/?>/gi, '\n')
+    // Wrap chord tags as tappable spans
+    .replace(/<b>([^<]*)<\/b>/gi, (_, chord) => {
+      const c = chord.trim();
+      return c ? chordSpan(c) : '';
+    })
+    // Strip any remaining HTML tags (spans, divs, etc from the site)
+    .replace(/<[^>]+>/g, '')
+    // Decode common HTML entities
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n));
 }
 
 // ── Mode B: plain text — detect chord lines heuristically ──
 function isChordLine(line) {
   const t = line.trim();
   if (!t || /^\[.+\]$/.test(t)) return false;
+
+  // Split on whitespace — filter empty
   const tokens = t.split(/\s+/).filter(Boolean);
+  if (!tokens.length) return false;
+
   let chords = 0, words = 0;
   for (const tok of tokens) {
-    if (CHORD_TOKEN_RE.test(tok))                          chords++;
-    else if (/[a-záàâãéêíóôõúç]{3,}/i.test(tok) && !QUALIFIER_RE.test(tok)) words++;
+    // Strip trailing punctuation like , . ) ( that sometimes appears
+    const clean = tok.replace(/^[(]+|[),.]+$/g, '');
+    if (!clean) continue;
+
+    if (CHORD_TOKEN_RE.test(clean)) {
+      chords++;
+    } else if (/[a-záàâãéêíóôõúç]{3,}/i.test(clean) && !QUALIFIER_RE.test(clean)) {
+      // Looks like a real word (3+ consecutive letters that aren't a qualifier)
+      words++;
+    }
+    // Tokens like "2x", "x2", "4x", "|", "-" are neutral — ignored
   }
+
+  // A line is a chord line if it has at least one chord and no words
+  // Exception: allow single-word lines that ARE a chord (e.g. just "Am")
   return chords > 0 && words === 0;
 }
 
