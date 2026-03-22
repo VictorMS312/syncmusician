@@ -36,44 +36,56 @@ const supa = axios.create({
 async function cacheGet(url) {
   try {
     const r = await supa.get('/cifras', {
-      params: { url: `eq.${url}`, select: '*', limit: 1 },
+      params: { url: `eq.${url}`, select: 'id,url,titulo,artista,conteudo,acessos', limit: 1 },
     });
     if (r.data?.length > 0) {
+      const row = r.data[0];
       // Incrementa acessos em background
-      supa.patch('/cifras', { acessos: r.data[0].acessos + 1 }, {
-        params: { url: `eq.${url}` },
-      }).catch(() => {});
-      return r.data[0];
+      supa.patch('/cifras',
+        { acessos: row.acessos + 1 },
+        { params: { id: `eq.${row.id}` }, headers: { 'Prefer': 'return=minimal' } }
+      ).catch(() => {});
+      return row;
     }
     return null;
-  } catch { return null; }
+  } catch (e) {
+    console.error('cacheGet error:', e.response?.data || e.message);
+    return null;
+  }
 }
 
 async function cacheSave({ url, titulo, artista, conteudo }) {
   try {
+    // Upsert: onConflict na coluna url
     await supa.post('/cifras',
       { url, titulo, artista, conteudo, acessos: 1 },
-      { headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' } }
+      {
+        params:  { on_conflict: 'url' },
+        headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      }
     );
   } catch (e) {
-    console.error('Cache save error:', e.message);
+    console.error('cacheSave error:', e.response?.data || e.message);
   }
 }
 
 async function cacheSearch(q) {
   try {
     const terms = q.trim().split(/\s+/).filter(Boolean).slice(0, 5);
-    // Busca por cada termo no título ou artista (OR entre campos, AND entre termos)
-    // Estratégia: pega o termo principal (mais longo) e filtra
-    const main  = terms.sort((a, b) => b.length - a.length)[0];
-    const r     = await supa.get('/cifras', {
+    const main  = [...terms].sort((a, b) => b.length - a.length)[0];
+
+    // Supabase REST: filtro OR precisa do formato ?or=(campo.op.val,campo.op.val)
+    const orFilter = `(titulo.ilike.%${main}%,artista.ilike.%${main}%)`;
+
+    const r = await supa.get('/cifras', {
       params: {
-        or:     `titulo.ilike.%${main}%,artista.ilike.%${main}%`,
+        or:     orFilter,
         select: 'url,titulo,artista,acessos',
         limit:  20,
         order:  'acessos.desc',
       },
     });
+
     if (!r.data?.length) return [];
 
     // Filtra localmente pelos outros termos
@@ -82,7 +94,10 @@ async function cacheSearch(q) {
       const text = `${row.titulo} ${row.artista}`.toLowerCase();
       return others.every(t => text.includes(t.toLowerCase()));
     });
-  } catch { return []; }
+  } catch (e) {
+    console.error('cacheSearch error:', e.response?.data || e.message);
+    return [];
+  }
 }
 
 // ─────────────────────────────────────────────────────
@@ -323,6 +338,36 @@ app.get('/get-cifra', async (req, res) => {
     res.status(error.response?.status || 500).json({
       error:   'Erro ao buscar cifra',
       details: error.message,
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────
+//  HEALTH CHECK — testa conexão com Supabase
+// ─────────────────────────────────────────────────────
+app.get('/health', async (req, res) => {
+  try {
+    const r = await supa.get('/cifras', {
+      params: { select: 'id', limit: 1 },
+    });
+    res.json({
+      status:   'ok',
+      supabase: 'connected',
+      rows:     r.data?.length ?? 0,
+      env: {
+        supabase_url: SUPABASE_URL ? 'set' : 'MISSING',
+        supabase_key: SUPABASE_KEY ? 'set' : 'MISSING',
+      },
+    });
+  } catch (e) {
+    res.status(500).json({
+      status:   'error',
+      supabase: 'failed',
+      detail:   e.response?.data || e.message,
+      env: {
+        supabase_url: SUPABASE_URL ? 'set' : 'MISSING',
+        supabase_key: SUPABASE_KEY ? 'set' : 'MISSING',
+      },
     });
   }
 });
