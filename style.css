@@ -741,6 +741,45 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
 .pd-black.active .pd-knote { color: #000; }
 .pd-notes   { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); letter-spacing: 0.5px; }
 
+/* ── SETTINGS ── */
+.btn-settings {
+  background: none; border: none; font-size: 20px;
+  cursor: pointer; padding: 4px; border-radius: 8px;
+  transition: background 0.15s;
+}
+.btn-settings:active { background: var(--surface2); }
+
+.settings-section-label {
+  font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--text-dim); font-family: var(--font-mono);
+  padding: 16px 0 10px; border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.settings-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 0; border-bottom: 1px solid var(--border); gap: 16px;
+}
+.settings-row:last-child { border-bottom: none; }
+.settings-row-title { font-size: 14px; font-weight: 600; }
+.settings-row-sub   { font-size: 11px; color: var(--text-dim); margin-top: 2px; font-family: var(--font-mono); }
+
+/* Toggle switch */
+.toggle { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute; inset: 0; border-radius: 24px;
+  background: var(--border2); cursor: pointer;
+  transition: background 0.2s;
+}
+.toggle-slider::before {
+  content: ''; position: absolute;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: white; left: 3px; top: 3px;
+  transition: transform 0.2s;
+}
+.toggle input:checked + .toggle-slider { background: var(--accent2); }
+.toggle input:checked + .toggle-slider::before { transform: translateX(20px); }
+
 /* ── TOAST ── */
 #toast {
   position: fixed; top: calc(var(--header-h) + 10px); left: 50%;

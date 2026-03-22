@@ -178,6 +178,46 @@
 <div    id="fab-back" class="fab" onclick="fabBackHandler()">← VOLTAR</div>
 <div    id="fab-save" class="fab" onclick="saveEdit()">✓ SALVAR</div>
 
+<!-- ══ SETTINGS MODAL ══ -->
+<div id="modal-settings" class="modal-overlay">
+  <div class="modal-sheet" style="max-height:60vh;">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title">⚙️ Configurações</div>
+      <button class="modal-close" onclick="closeSettings()">✕</button>
+    </div>
+    <div class="lib-scroll" style="padding:0 18px 24px;">
+
+      <div class="settings-section-label">Funcionalidades</div>
+
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-title">Sugestão de Medley</div>
+          <div class="settings-row-sub">Sugere próxima música compatível no tom</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="settings-medley"
+                 onchange="toggleSetting('medleyEnabled', this)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-title">Diagramas de acordes</div>
+          <div class="settings-row-sub">Toque num acorde para ver a posição</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="settings-chorddiagrams"
+                 onchange="toggleSetting('chordDiagrams', this)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+    </div>
+  </div>
+</div>
+
 <!-- ══ CHORD POPUP ══ -->
 <div id="chord-overlay" onclick="closeChordPopup()"></div>
 <div id="chord-popup">

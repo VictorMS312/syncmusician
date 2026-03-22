@@ -6,6 +6,13 @@ let db = JSON.parse(localStorage.getItem('syncmusician_v8')) || {
   biblioteca: []
 };
 
+// Configurações (toggles de funcionalidades)
+let settings = JSON.parse(localStorage.getItem('syncmusician_settings')) || {
+  medleyEnabled:  true,
+  chordDiagrams:  true,
+};
+function saveSettings() { localStorage.setItem('syncmusician_settings', JSON.stringify(settings)); }
+
 let peer = null, connections = [], role = '';
 let pastaAtiva = '', musicaAtivaId = null, musicaAtivaIndex = -1;
 let originalText = '', currentText = '', baseNote = 'C', currentNote = 'C';
@@ -15,6 +22,8 @@ let peerIdGlobal = null;
 let html5QrCode = null;
 let medleySuggestion = null;
 let medleyWatcherId = null;
+// Histórico de medleys para não repetir músicas na sessão
+let medleyHistory = [];
 
 const notes = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 
@@ -40,27 +49,43 @@ window.onload = () => {
   migrarBiblioteca();
 };
 
-// Detecta o tom provável da cifra pelo acorde mais frequente no início
+// Detecta o tom da cifra usando campo harmônico
+// Lógica: o acorde que aparece mais vezes E está no final da música é a tônica
 function detectKey(text) {
-  const lines = text.split('\n');
-  const chordCounts = {};
-  for (const line of lines.slice(0, 30)) { // analisa só primeiras 30 linhas
-    if (isChordLine(line)) {
-      const matches = line.match(/[A-G][#b]?(?:m|maj|M|min|dim|aug|sus|add)?[0-9]?/g) || [];
-      matches.forEach(c => {
-        const root = c.replace(/[^A-G#b]/g, '');
-        if (notes.includes(root)) chordCounts[root] = (chordCounts[root] || 0) + 1;
-      });
+  const lines      = text.split('\n');
+  const allChords  = [];
+  const lastChords = []; // últimos 20% da música
+
+  lines.forEach((line, idx) => {
+    if (!isChordLine(line)) return;
+    const matches = line.match(/[A-G][#b]?(?:m(?:aj)?|dim|aug|sus)?/g) || [];
+    matches.forEach(c => {
+      // Normaliza bemóis para sustenidos
+      const norm = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[c.replace(/m.*/,'')] || c.replace(/m.*/,'');
+      if (!notes.includes(norm)) return;
+      allChords.push({ root: norm, isMinor: /m(?!aj)/.test(c), idx });
+      if (idx >= lines.length * 0.8) lastChords.push({ root: norm, isMinor: /m(?!aj)/.test(c) });
+    });
+  });
+
+  if (allChords.length === 0) return 'C';
+
+  // Contagem de raízes
+  const counts = {};
+  allChords.forEach(c => { counts[c.root] = (counts[c.root] || 0) + 1; });
+
+  // O último acorde da cifra geralmente é a tônica
+  const lastLine  = [...lines].reverse().find(l => isChordLine(l));
+  if (lastLine) {
+    const lastM = lastLine.trim().match(/([A-G][#b]?)(?:m(?!aj))?/);
+    if (lastM) {
+      const lastRoot = ({'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[lastM[1]] || lastM[1]);
+      if (notes.includes(lastRoot) && counts[lastRoot]) return lastRoot;
     }
   }
-  if (Object.keys(chordCounts).length === 0) return 'C';
-  // Retorna o primeiro acorde encontrado (tendência de músicas começarem no tom)
-  const firstChordLine = lines.find(l => isChordLine(l));
-  if (firstChordLine) {
-    const m = firstChordLine.trim().match(/^([A-G][#b]?)/);
-    if (m && notes.includes(m[1])) return m[1];
-  }
-  return Object.entries(chordCounts).sort((a,b) => b[1]-a[1])[0][0];
+
+  // Fallback: raiz mais frequente
+  return Object.entries(counts).sort((a,b) => b[1]-a[1])[0][0];
 }
 
 // Extrai a primeira URL válida de um texto (resolve "Veja como tocar X https://...")
@@ -216,7 +241,10 @@ function renderFolders() {
   pastaAtiva = ''; musicaAtivaId = null; musicaAtivaIndex = -1;
   showDynamic(); hideAllPanels(); hideMedley(); stopMedleyWatcher();
   setFABs('folders');
-  let html = `<div class="view-header"><div class="view-title">Minhas Pastas</div></div><div class="folders-grid">`;
+  let html = `<div class="view-header">
+    <div class="view-title">Minhas Pastas</div>
+    <button class="btn-settings" onclick="openSettings()" title="Configurações">⚙️</button>
+  </div><div class="folders-grid">`;
   Object.keys(db.pastas).forEach(nome => {
     html += `<div class="folder-card" onclick="openFolder('${esc(nome)}')">
       <button class="folder-menu-btn" onclick="event.stopPropagation(); openFolderMenu(event, '${esc(nome)}')">⋮</button>
@@ -234,6 +262,7 @@ function renderFolders() {
 
 function openFolder(nome) {
   pastaAtiva = nome;
+  medleyHistory = []; // reseta histórico ao mudar de pasta
   showDynamic(); hideAllPanels(); hideMedley(); stopMedleyWatcher();
   setFABs('songs');
   const songs = db.pastas[nome].map(id => db.biblioteca.find(b => b.id === id)).filter(Boolean);
@@ -291,7 +320,7 @@ function openSong(index) {
   isScrolling = false;
   contentArea.scrollTop = 0; scrollPos = 0;
 
-  if (role === 'S') startMedleyWatcher();
+  if (role === 'S' && settings.medleyEnabled) startMedleyWatcher();
 }
 
 function fabBackHandler() {
@@ -329,6 +358,9 @@ const QUALIFIER_RE   = /^(?:maj|min|dim|aug|sus|add)$/i;
 
 // Wrap a chord string into a tappable span
 function chordSpan(chord) {
+  if (!settings.chordDiagrams) {
+    return `<span class="chord">${chord}</span>`;
+  }
   const safe = chord.replace(/'/g, "\\'");
   return `<span class="chord" onclick="openChordPopup('${safe}')">${chord}</span>`;
 }
@@ -352,27 +384,20 @@ function isChordLine(line) {
   const t = line.trim();
   if (!t || /^\[.+\]$/.test(t)) return false;
 
-  // Split on whitespace — filter empty
   const tokens = t.split(/\s+/).filter(Boolean);
   if (!tokens.length) return false;
 
   let chords = 0, words = 0;
   for (const tok of tokens) {
-    // Strip trailing punctuation like , . ) ( that sometimes appears
-    const clean = tok.replace(/^[(]+|[),.]+$/g, '');
-    if (!clean) continue;
+    const clean = tok.replace(/^[(]+|[),.:|/]+$/g, '');
+    if (!clean || clean.length < 2) continue; // ignora tokens de 1 char (E, A na letra)
 
     if (CHORD_TOKEN_RE.test(clean)) {
       chords++;
     } else if (/[a-záàâãéêíóôõúç]{3,}/i.test(clean) && !QUALIFIER_RE.test(clean)) {
-      // Looks like a real word (3+ consecutive letters that aren't a qualifier)
       words++;
     }
-    // Tokens like "2x", "x2", "4x", "|", "-" are neutral — ignored
   }
-
-  // A line is a chord line if it has at least one chord and no words
-  // Exception: allow single-word lines that ARE a chord (e.g. just "Am")
   return chords > 0 && words === 0;
 }
 
@@ -532,14 +557,23 @@ function tonesCompatible(a, b) {
 }
 
 function findMedleySuggestion() {
+  if (!settings.medleyEnabled) return null;
   const ids = db.pastas[pastaAtiva] || [];
+  // Exclui música atual E todo o histórico da sessão
+  const excluded = new Set([musicaAtivaId, ...medleyHistory]);
   for (let i = 0; i < ids.length; i++) {
-    if (ids[i] === musicaAtivaId) continue;
+    if (excluded.has(ids[i])) continue;
     const m = db.biblioteca.find(b => b.id === ids[i]);
     if (!m) continue;
     if (tonesCompatible(currentNote, m.originalTone || 'C')) {
       return { id: ids[i], indexInPasta: i, title: m.title };
     }
+  }
+  // Se todas as compatíveis já foram tocadas, limpa o histórico e tenta de novo
+  // (exceto a atual)
+  if (medleyHistory.length > 0) {
+    medleyHistory = [];
+    return findMedleySuggestion();
   }
   return null;
 }
@@ -682,6 +716,7 @@ function jumpToMedley() {
     : 0;
 
   hideMedley(); stopMedleyWatcher();
+  medleyHistory.push(musicaAtivaId); // registra música atual no histórico
   openSong(idx);
   showToast('▶ ' + title);
 
@@ -959,8 +994,22 @@ function deleteFolder(nome) {
 }
 
 // ════════════════════════════════════
-//  QR & COPY
+//  SETTINGS
 // ════════════════════════════════════
+function openSettings() {
+  // Render toggles
+  $('settings-medley').checked       = settings.medleyEnabled;
+  $('settings-chorddiagrams').checked = settings.chordDiagrams;
+  $('modal-settings').classList.add('open');
+}
+function closeSettings() { $('modal-settings').classList.remove('open'); }
+
+function toggleSetting(key, el) {
+  settings[key] = el.checked;
+  saveSettings();
+  // Aplica imediatamente
+  if (key === 'medleyEnabled' && !settings.medleyEnabled) hideMedley();
+}
 function toggleQR() { $('modal-qr').classList.toggle('open'); }
 
 function copyID() {
