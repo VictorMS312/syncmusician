@@ -9,7 +9,7 @@ let db = JSON.parse(localStorage.getItem('syncmusician_v8')) || {
 // Configurações (toggles de funcionalidades)
 let settings = JSON.parse(localStorage.getItem('syncmusician_settings')) || {
   medleyEnabled:  true,
-  chordDiagrams:  true,
+  editEnabled:    true,
 };
 function saveSettings() { localStorage.setItem('syncmusician_settings', JSON.stringify(settings)); }
 
@@ -311,6 +311,8 @@ function openSong(index) {
 
   if (role === 'S') {
     controlsBar.style.display = 'flex';
+    // Mostra ou esconde botão de edição conforme configuração
+    $('btn-edit-toggle').style.display = settings.editEnabled ? '' : 'none';
     syncMusicians(currentText, currentNote);
   }
 
@@ -358,9 +360,6 @@ const QUALIFIER_RE   = /^(?:maj|min|dim|aug|sus|add)$/i;
 
 // Wrap a chord string into a tappable span
 function chordSpan(chord) {
-  if (!settings.chordDiagrams) {
-    return `<span class="chord">${chord}</span>`;
-  }
   const safe = chord.replace(/'/g, "\\'");
   return `<span class="chord" onclick="openChordPopup('${safe}')">${chord}</span>`;
 }
@@ -997,9 +996,8 @@ function deleteFolder(nome) {
 //  SETTINGS
 // ════════════════════════════════════
 function openSettings() {
-  // Render toggles
-  $('settings-medley').checked       = settings.medleyEnabled;
-  $('settings-chorddiagrams').checked = settings.chordDiagrams;
+  $('settings-medley').checked = settings.medleyEnabled;
+  $('settings-edit').checked   = settings.editEnabled;
   $('modal-settings').classList.add('open');
 }
 function closeSettings() { $('modal-settings').classList.remove('open'); }
@@ -1007,8 +1005,11 @@ function closeSettings() { $('modal-settings').classList.remove('open'); }
 function toggleSetting(key, el) {
   settings[key] = el.checked;
   saveSettings();
-  // Aplica imediatamente
   if (key === 'medleyEnabled' && !settings.medleyEnabled) hideMedley();
+  if (key === 'editEnabled') {
+    const btn = $('btn-edit-toggle');
+    if (btn) btn.style.display = settings.editEnabled ? '' : 'none';
+  }
 }
 function toggleQR() { $('modal-qr').classList.toggle('open'); }
 
