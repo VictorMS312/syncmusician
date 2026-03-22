@@ -68,6 +68,8 @@ function extractUrl(text) {
   const m = text.match(/https?:\/\/[^\s]+/);
   return m ? m[0].trim() : text.trim();
 }
+
+function migrarBiblioteca() {
   let changed = false;
   db.biblioteca.forEach(m => {
     if (!m.content) return;
