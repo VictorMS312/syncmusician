@@ -183,7 +183,10 @@
 <div id="chord-popup">
   <div class="chord-popup-handle"></div>
   <div class="chord-popup-header">
-    <div class="chord-popup-name" id="chord-popup-title">Am</div>
+    <div>
+      <div class="chord-popup-name" id="chord-popup-title">Am</div>
+      <div class="chord-popup-subtitle" id="chord-popup-subtitle"></div>
+    </div>
     <button class="chord-popup-close" onclick="closeChordPopup()">✕</button>
   </div>
   <div class="chord-inst-tabs" id="chord-inst-tabs">
@@ -193,7 +196,9 @@
     <div class="chord-inst-tab"        data-inst="ukulele" onclick="chordSelectInst(this)">🪗 Ukulele</div>
   </div>
   <div class="chord-var-row" id="chord-var-row"></div>
-  <div class="chord-diagram-scroll">
+  <div class="chord-diagram-scroll" style="position:relative;">
+    <button id="chord-prev" class="chord-arrow chord-arrow-l" onclick="chordPrev()">‹</button>
+    <button id="chord-next" class="chord-arrow chord-arrow-r" onclick="chordNext()">›</button>
     <div class="chord-diagram-track" id="chord-diagram-track"></div>
   </div>
 </div>

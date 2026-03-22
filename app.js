@@ -40,8 +40,34 @@ window.onload = () => {
   migrarBiblioteca();
 };
 
-// Migra músicas antigas que foram salvas sem <b> tags ou com HTML mal formado
-function migrarBiblioteca() {
+// Detecta o tom provável da cifra pelo acorde mais frequente no início
+function detectKey(text) {
+  const lines = text.split('\n');
+  const chordCounts = {};
+  for (const line of lines.slice(0, 30)) { // analisa só primeiras 30 linhas
+    if (isChordLine(line)) {
+      const matches = line.match(/[A-G][#b]?(?:m|maj|M|min|dim|aug|sus|add)?[0-9]?/g) || [];
+      matches.forEach(c => {
+        const root = c.replace(/[^A-G#b]/g, '');
+        if (notes.includes(root)) chordCounts[root] = (chordCounts[root] || 0) + 1;
+      });
+    }
+  }
+  if (Object.keys(chordCounts).length === 0) return 'C';
+  // Retorna o primeiro acorde encontrado (tendência de músicas começarem no tom)
+  const firstChordLine = lines.find(l => isChordLine(l));
+  if (firstChordLine) {
+    const m = firstChordLine.trim().match(/^([A-G][#b]?)/);
+    if (m && notes.includes(m[1])) return m[1];
+  }
+  return Object.entries(chordCounts).sort((a,b) => b[1]-a[1])[0][0];
+}
+
+// Extrai a primeira URL válida de um texto (resolve "Veja como tocar X https://...")
+function extractUrl(text) {
+  const m = text.match(/https?:\/\/[^\s]+/);
+  return m ? m[0].trim() : text.trim();
+}
   let changed = false;
   db.biblioteca.forEach(m => {
     if (!m.content) return;
@@ -162,10 +188,11 @@ function receiveSong(body, tone) {
   showCifraView(); renderCifra(body);
   $('curr-tone').textContent = tone;
   $('orig-tone').textContent = tone;
-  toneBar.style.display      = 'flex';
-  controlsBar.style.display  = 'none';
-  scrollPanel.style.display  = 'none';
-  contentArea.scrollTop      = 0;
+  toneBar.style.display     = 'flex';
+  controlsBar.style.display = 'none';
+  // Músico: mantém painel de scroll aberto e funcional (controle independente)
+  scrollPanel.style.display = 'flex';
+  contentArea.scrollTop     = 0;
   hideMedley();
 }
 
@@ -766,9 +793,10 @@ async function importarDaBusca(url, title, btn) {
     const data = await res.json();
     if (!data.cifra) throw new Error('sem conteúdo');
 
-    const plain = htmlParaTexto(data.cifra);
-    const id    = Date.now().toString();
-    db.biblioteca.push({ id, url, title: data.titulo || title, content: plain, originalTone: 'C' });
+    const plain        = htmlParaTexto(data.cifra);
+    const originalTone = detectKey(plain);
+    const id           = Date.now().toString();
+    db.biblioteca.push({ id, url, title: data.titulo || title, content: plain, originalTone });
     db.pastas[pastaAtiva].push(id);
     salvarDB(); closeLibrary(); openFolder(pastaAtiva);
     showToast('Música importada!');
@@ -797,8 +825,10 @@ function renderLibraryList() {
 }
 
 async function importLink() {
-  let url = $('url-input').value.trim();
-  if (!url) return;
+  let raw = $('url-input').value.trim();
+  if (!raw) return;
+  // Extrai URL mesmo que venha com texto na frente (ex: compartilhar do Cifra Club)
+  let url = extractUrl(raw);
   if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
 
   const existing = db.biblioteca.find(m => m.url === url);
@@ -810,9 +840,10 @@ async function importLink() {
     const res  = await fetch(`https://syncmusician.onrender.com/get-cifra?url=${encodeURIComponent(url)}`);
     const data = await res.json();
     if (!data.cifra) throw new Error('sem conteúdo');
-    const plain = htmlParaTexto(data.cifra);
-    const id    = Date.now().toString();
-    db.biblioteca.push({ id, url, title: data.titulo || 'Sem título', content: plain, originalTone: 'C' });
+    const plain        = htmlParaTexto(data.cifra);
+    const originalTone = detectKey(plain);
+    const id           = Date.now().toString();
+    db.biblioteca.push({ id, url, title: data.titulo || 'Sem título', content: plain, originalTone });
     db.pastas[pastaAtiva].push(id);
     salvarDB(); closeLibrary(); openFolder(pastaAtiva);
     $('url-input').value = '';
@@ -1235,6 +1266,96 @@ const CHORD_DB = {
       { name:'Bm', strings:[4,2,2,2], fingers:[4,1,2,3], baseFret:2, barre:{fret:2,from:1,to:3} },
     ],
   },
+
+  // ── ACORDES COM SUSTENIDO ──
+  'C#': {
+    guitar:  [
+      { name:'C# barre', strings:[4,4,6,6,6,4], fingers:[1,1,3,3,3,1], baseFret:4, barre:{fret:4,from:0,to:5} },
+      { name:'C# (alt)', strings:[-1,4,3,1,2,1], fingers:[0,4,3,1,2,1], baseFret:1, barre:{fret:1,from:4,to:5} },
+    ],
+    piano:   [{ name:'C# maior', notes:['C#','F','G#'] }],
+    bass:    [{ name:'C# raiz',  strings:[-1,-1,4,4], fingers:[0,0,1,1], baseFret:3 }],
+    ukulele: [{ name:'C#', strings:[1,1,1,4], fingers:[1,1,1,4], barre:{fret:1,from:0,to:2} }],
+  },
+  'C#m': {
+    guitar:  [
+      { name:'C#m barre', strings:[4,4,6,6,5,4], fingers:[1,1,3,4,2,1], baseFret:4, barre:{fret:4,from:0,to:5} },
+    ],
+    piano:   [{ name:'C#m', notes:['C#','E','G#'] }],
+    bass:    [{ name:'C#m raiz', strings:[-1,-1,4,4], fingers:[0,0,1,1], baseFret:3 }],
+    ukulele: [{ name:'C#m', strings:[1,1,0,4], fingers:[1,1,0,3] }],
+  },
+  'D#': {
+    guitar:  [
+      { name:'D# barre', strings:[6,6,8,8,8,6], fingers:[1,1,3,3,3,1], baseFret:6, barre:{fret:6,from:0,to:5} },
+      { name:'D# (alt)', strings:[-1,-1,1,3,4,3], fingers:[0,0,1,3,4,2], baseFret:1 },
+    ],
+    piano:   [{ name:'D# maior', notes:['D#','G','A#'] }],
+    bass:    [{ name:'D# raiz',  strings:[-1,-1,1,1], fingers:[0,0,1,1], baseFret:1, barre:{fret:1,from:2,to:3} }],
+    ukulele: [{ name:'D#', strings:[3,3,3,1], fingers:[2,3,4,1], baseFret:1 }],
+  },
+  'D#m': {
+    guitar:  [
+      { name:'D#m barre', strings:[6,6,8,8,7,6], fingers:[1,1,3,4,2,1], baseFret:6, barre:{fret:6,from:0,to:5} },
+    ],
+    piano:   [{ name:'D#m', notes:['D#','F#','A#'] }],
+    bass:    [{ name:'D#m raiz', strings:[-1,-1,1,3], fingers:[0,0,1,3], baseFret:1 }],
+    ukulele: [{ name:'D#m', strings:[3,3,2,1], fingers:[3,4,2,1] }],
+  },
+  'F#': {
+    guitar:  [
+      { name:'F# barre',  strings:[2,4,4,3,2,2], fingers:[1,3,4,2,1,1], baseFret:2, barre:{fret:2,from:0,to:5} },
+      { name:'F# (alt)',  strings:[-1,-1,4,3,2,2], fingers:[0,0,4,3,1,2], baseFret:2 },
+    ],
+    piano:   [{ name:'F# maior', notes:['F#','A#','C#'] }],
+    bass:    [{ name:'F# raiz',  strings:[2,4,-1,-1], fingers:[1,3,0,0] }],
+    ukulele: [{ name:'F#', strings:[3,1,2,2], fingers:[4,1,2,3] }],
+  },
+  'F#m': {
+    guitar:  [
+      { name:'F#m barre', strings:[2,4,4,2,2,2], fingers:[1,3,4,1,1,1], baseFret:2, barre:{fret:2,from:0,to:5} },
+      { name:'F#m7',      strings:[2,4,2,2,2,2], fingers:[1,3,1,1,1,1], baseFret:2, barre:{fret:2,from:0,to:5} },
+    ],
+    piano:   [
+      { name:'F#m',        notes:['F#','A','C#'] },
+      { name:'F#m oitava', notes:['F#','A','C#','F#2'] },
+    ],
+    bass:    [{ name:'F#m raiz', strings:[2,4,-1,-1], fingers:[1,3,0,0] }],
+    ukulele: [{ name:'F#m', strings:[2,1,2,0], fingers:[2,1,3,0] }],
+  },
+  'G#': {
+    guitar:  [
+      { name:'G# barre', strings:[4,6,6,5,4,4], fingers:[1,3,4,2,1,1], baseFret:4, barre:{fret:4,from:0,to:5} },
+    ],
+    piano:   [{ name:'G# maior', notes:['G#','C','D#'] }],
+    bass:    [{ name:'G# raiz',  strings:[4,6,-1,-1], fingers:[1,3,0,0] }],
+    ukulele: [{ name:'G#', strings:[5,3,4,3], fingers:[4,1,3,2] }],
+  },
+  'G#m': {
+    guitar:  [
+      { name:'G#m barre', strings:[4,6,6,4,4,4], fingers:[1,3,4,1,1,1], baseFret:4, barre:{fret:4,from:0,to:5} },
+    ],
+    piano:   [{ name:'G#m', notes:['G#','B','D#'] }],
+    bass:    [{ name:'G#m raiz', strings:[4,6,-1,-1], fingers:[1,3,0,0] }],
+    ukulele: [{ name:'G#m', strings:[4,3,4,2], fingers:[3,2,4,1] }],
+  },
+  'A#': {
+    guitar:  [
+      { name:'A# barre', strings:[6,8,8,7,6,6], fingers:[1,3,4,2,1,1], baseFret:6, barre:{fret:6,from:0,to:5} },
+      { name:'Bb aberto',strings:[-1,1,3,3,3,1], fingers:[0,1,2,3,4,1], baseFret:1, barre:{fret:1,from:1,to:5} },
+    ],
+    piano:   [{ name:'A#/Bb maior', notes:['A#','D','F'] }],
+    bass:    [{ name:'A# raiz', strings:[-1,1,-1,-1], fingers:[0,1,0,0] }],
+    ukulele: [{ name:'A#', strings:[3,2,1,1], fingers:[3,2,1,1] }],
+  },
+  'A#m': {
+    guitar:  [
+      { name:'A#m barre', strings:[6,8,8,6,6,6], fingers:[1,3,4,1,1,1], baseFret:6, barre:{fret:6,from:0,to:5} },
+    ],
+    piano:   [{ name:'A#m/Bbm', notes:['A#','C#','F'] }],
+    bass:    [{ name:'A#m raiz', strings:[-1,1,-1,-1], fingers:[0,1,0,0] }],
+    ukulele: [{ name:'A#m', strings:[3,1,1,1], fingers:[3,1,1,1], barre:{fret:1,from:1,to:3} }],
+  },
 };
 
 const WHITE_NOTES = ['C','D','E','F','G','A','B','C2','D2','E2','F2','G2','A2','B2'];
@@ -1247,16 +1368,27 @@ let chordPopupInst = 'guitar';
 let chordPopupVar  = 0;
 let chordPopupName = '';
 
+const NOTE_NAMES = {
+  'C':'Dó','C#':'Dó#','D':'Ré','D#':'Ré#','E':'Mi',
+  'F':'Fá','F#':'Fá#','G':'Sol','G#':'Sol#','A':'Lá','A#':'Lá#','B':'Si'
+};
+
 function openChordPopup(chord) {
   const root = chord.split('/')[0];
   chordPopupName = root;
   chordPopupVar  = 0;
+
+  // Mostra nome + nota (ex: "Am • Lá menor")
+  const noteName = NOTE_NAMES[root.replace(/m.*|M.*|dim.*|aug.*|sus.*|add.*|\d/g,'')] || '';
+  const qualifier = root.match(/m(?!aj)|dim|aug|sus/)?.[0] === 'm' ? ' menor' : root.includes('dim') ? ' diminuto' : root.includes('aug') ? ' aumentado' : ' maior';
   $('chord-popup-title').textContent = chord;
-  // Reset tabs
+  $('chord-popup-subtitle').textContent = noteName ? `${noteName}${qualifier}` : '';
+
   document.querySelectorAll('.chord-inst-tab').forEach(t => t.classList.toggle('active', t.dataset.inst === chordPopupInst));
   $('chord-overlay').classList.add('open');
   $('chord-popup').classList.add('open');
   renderChordPopup();
+  initChordSwipe();
 }
 
 function closeChordPopup() {
@@ -1272,30 +1404,70 @@ function chordSelectInst(tab) {
   renderChordPopup();
 }
 
+// Mapa de enarmônicos: bemol → sustenido equivalente
+const ENHARMONIC = {
+  'Db':'C#','Eb':'D#','Fb':'E','Gb':'F#','Ab':'G#','Bb':'A#','Cb':'B',
+  'db':'C#','eb':'D#','gb':'F#','ab':'G#','bb':'A#',
+};
+
+function normalizeChordName(name) {
+  // Remove barra de baixo (slash chord): Bb/D → Bb
+  let n = name.split('/')[0].trim();
+
+  // Extrai raiz + qualificador
+  const rootMatch = n.match(/^([A-G][#b]?)(.*)/);
+  if (!rootMatch) return n;
+
+  let root = rootMatch[1];
+  let qual = rootMatch[2] || '';
+
+  // Converte bemóis para sustenidos
+  const enRoot = ENHARMONIC[root];
+  if (enRoot) root = enRoot;
+
+  // Remove sufixos numéricos puros mantendo 'm' de menor
+  // A7→A, C9→C, D4→D, A2→A, D#9→D#, Cm7→Cm, Am7→Am
+  qual = qual
+    .replace(/^(m(?:in)?)(aj)?(\d+)$/, '$1') // Am7 → Am, Cm9 → Cm
+    .replace(/^(maj)(\d+)$/, '')              // Cmaj7 → C
+    .replace(/^(\d+)$/, '')                   // C7 → C, C9 → C
+    .replace(/^(sus)(\d*)$/, '')              // Csus4 → C
+    .replace(/^(add)(\d+)$/, '')              // Cadd9 → C
+    .replace(/^(dim)(\d*)$/, 'dim')           // Cdim7 → Cdim
+    .replace(/^(aug)(\d*)$/, '');             // Caug → C
+
+  return root + qual;
+}
+
 function getChordEntry() {
-  const data = CHORD_DB[chordPopupName];
-  if (!data) {
-    // Fallback: strip minor/major qualifier to try root
-    const rootOnly = chordPopupName.replace(/m.*|M.*|dim.*|aug.*|sus.*|add.*/, '');
-    return CHORD_DB[rootOnly] || null;
-  }
-  return data;
+  // Tenta nome exato primeiro
+  if (CHORD_DB[chordPopupName]) return CHORD_DB[chordPopupName];
+
+  // Normaliza (remove bemóis, sufixos numéricos, slash)
+  const normalized = normalizeChordName(chordPopupName);
+  if (CHORD_DB[normalized]) return CHORD_DB[normalized];
+
+  // Última tentativa: só a raiz
+  const rootOnly = normalized.replace(/m$|dim$|aug$/, '');
+  return CHORD_DB[rootOnly] || null;
 }
 
 function renderChordPopup() {
-  const entry = getChordEntry();
+  const entry  = getChordEntry();
   const varRow = $('chord-var-row');
   const track  = $('chord-diagram-track');
 
-  if (!entry) {
+  if (!entry || !entry[chordPopupInst]?.length) {
     varRow.innerHTML = '';
-    track.innerHTML  = `<div class="chord-diagram-slide" style="color:var(--text-dim);font-family:var(--font-mono);font-size:12px;text-align:center;">Acorde sem dados ainda.<br><br>Toque em ✎ EDITAR para<br>adicionar a posição manualmente.</div>`;
+    track.innerHTML  = `<div class="chord-diagram-slide"><div style="color:var(--text-dim);font-family:var(--font-mono);font-size:12px;text-align:center;line-height:1.8;">Posição de <b style="color:var(--accent)">${chordPopupName}</b><br>ainda não cadastrada<br>para este instrumento.</div></div>`;
+    $('chord-prev').style.display = 'none';
+    $('chord-next').style.display = 'none';
     return;
   }
 
-  const vars = entry[chordPopupInst] || [];
+  const vars = entry[chordPopupInst];
 
-  // Variation dots
+  // Dots
   varRow.innerHTML = `<span class="chord-var-label">Variação</span>`;
   vars.forEach((_, i) => {
     const d = document.createElement('div');
@@ -1304,7 +1476,12 @@ function renderChordPopup() {
     varRow.appendChild(d);
   });
 
-  // Build all slides
+  // Arrows visibility
+  $('chord-prev').style.display = vars.length > 1 ? 'flex' : 'none';
+  $('chord-next').style.display = vars.length > 1 ? 'flex' : 'none';
+  updateArrows(vars.length);
+
+  // Slides
   track.innerHTML = '';
   track.style.transform = `translateX(-${chordPopupVar * 100}%)`;
   vars.forEach(v => {
@@ -1320,10 +1497,41 @@ function renderChordPopup() {
   });
 }
 
+function updateArrows(total) {
+  const t = total || (getChordEntry()?.[chordPopupInst]?.length || 0);
+  if ($('chord-prev')) $('chord-prev').style.opacity = chordPopupVar === 0 ? '0.3' : '1';
+  if ($('chord-next')) $('chord-next').style.opacity = chordPopupVar >= t - 1 ? '0.3' : '1';
+}
+
+function chordPrev() {
+  const vars = getChordEntry()?.[chordPopupInst] || [];
+  if (chordPopupVar > 0) selectChordVar(chordPopupVar - 1);
+}
+function chordNext() {
+  const vars = getChordEntry()?.[chordPopupInst] || [];
+  if (chordPopupVar < vars.length - 1) selectChordVar(chordPopupVar + 1);
+}
+
 function selectChordVar(idx) {
-  chordPopupVar = idx;
-  document.querySelectorAll('.chord-var-dot').forEach((d, i) => d.classList.toggle('active', i === idx));
-  $('chord-diagram-track').style.transform = `translateX(-${idx * 100}%)`;
+  const vars = getChordEntry()?.[chordPopupInst] || [];
+  chordPopupVar = Math.max(0, Math.min(idx, vars.length - 1));
+  document.querySelectorAll('.chord-var-dot').forEach((d, i) => d.classList.toggle('active', i === chordPopupVar));
+  $('chord-diagram-track').style.transform = `translateX(-${chordPopupVar * 100}%)`;
+  updateArrows(vars.length);
+}
+
+function initChordSwipe() {
+  const scroll = document.querySelector('.chord-diagram-scroll');
+  if (!scroll) return;
+  let startX = 0, moved = false;
+  scroll.ontouchstart = e => { startX = e.touches[0].clientX; moved = false; };
+  scroll.ontouchmove  = e => { if (Math.abs(e.touches[0].clientX - startX) > 10) moved = true; };
+  scroll.ontouchend   = e => {
+    if (!moved) return;
+    const diff = e.changedTouches[0].clientX - startX;
+    if (diff < -40) chordNext();
+    else if (diff > 40) chordPrev();
+  };
 }
 
 // ── Fretboard builder ──

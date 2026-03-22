@@ -612,12 +612,30 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
   font-family: var(--font-mono); font-size: 28px;
   font-weight: 700; color: var(--accent);
 }
+.chord-popup-subtitle {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-dim); letter-spacing: 0.5px; margin-top: 2px;
+}
 .chord-popup-close {
   width: 30px; height: 30px; background: var(--surface2);
   border: 1px solid var(--border2); border-radius: 50%;
   color: var(--text-dim); font-size: 16px; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
+
+/* Arrow buttons */
+.chord-arrow {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--text); font-size: 22px; line-height: 1;
+  cursor: pointer; z-index: 10;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 0.2s, background 0.15s;
+}
+.chord-arrow:active { background: var(--border2); }
+.chord-arrow-l { left: 6px; }
+.chord-arrow-r { right: 6px; }
 
 /* Instrument tabs */
 .chord-inst-tabs {
