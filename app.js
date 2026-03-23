@@ -123,41 +123,32 @@ function migrarBiblioteca() {
 
 function initRole(r) {
   role = r;
+  if (role === 'S') {
+    const name = $('leader-name-input').value.trim();
+    if (!name) { showToast('Digite seu nome antes de continuar'); $('leader-name-input').focus(); return; }
+    settings.displayName = name; saveSettings();
+  }
   if (role === 'M') {
     const id = $('join-id').value.trim();
     if (!id) { showToast('Digite o ID do Líder'); return; }
     localStorage.setItem('last_leader_id', id);
   }
-  // Salva nome se preenchido
-  const nameInput = $('leader-name-input');
-  if (nameInput && nameInput.value.trim()) {
-    settings.displayName = nameInput.value.trim();
-    saveSettings();
-  }
-  // Para polling de líderes
   if (leaderPollId) { clearInterval(leaderPollId); leaderPollId = null; }
   peer = new Peer();
   showScreen('screen-app');
-  $('screen-app').classList.add('nav-visible');
   if (role === 'S') setupLeader();
   else setupMusician($('join-id').value.trim());
 }
 
-// Inicia como líder E fica visível ao mesmo tempo
 function initRoleVisible() {
+  const name = $('leader-name-input').value.trim();
+  if (!name) { showToast('Digite seu nome antes de continuar'); $('leader-name-input').focus(); return; }
+  settings.displayName = name; settings.isVisible = true; saveSettings();
   role = 'S';
-  const nameInput = $('leader-name-input');
-  if (nameInput && nameInput.value.trim()) {
-    settings.displayName = nameInput.value.trim();
-    saveSettings();
-  }
-  settings.isVisible = true;
-  saveSettings();
   if (leaderPollId) { clearInterval(leaderPollId); leaderPollId = null; }
   peer = new Peer();
   showScreen('screen-app');
-  $('screen-app').classList.add('nav-visible');
-  setupLeader(true); // true = registrar como visível após peer abrir
+  setupLeader(true);
 }
 
 function showScreen(id) {
@@ -271,33 +262,30 @@ function receiveSong(body, tone) {
 function setView(view) {
   const inCifra = view === 'cifra' || view === 'edit';
 
-  // Bottom nav: oculto na cifra
+  // Bottom nav
   const nav = $('bottom-nav');
   if (nav) nav.style.display = inCifra ? 'none' : 'flex';
-
-  // Padding do content-area
-  const app = $('screen-app');
-  if (app) app.classList.toggle('nav-visible', !inCifra);
-
-  // Active tab na nav
-  document.querySelectorAll('.nav-tab').forEach(t => {
-    t.classList.toggle('active', t.dataset.tab === 'home' && !inCifra);
-  });
 
   // FABs
   $('fab-add').style.display  = view === 'songs'  ? 'flex' : 'none';
   $('fab-back').style.display = inCifra           ? 'flex' : 'none';
   $('fab-save').style.display = view === 'edit'   ? 'flex' : 'none';
+
+  // Active tab
+  document.querySelectorAll('.nav-tab').forEach(t => {
+    const tab = t.dataset.tab;
+    t.classList.toggle('active',
+      (view === 'folders' || view === 'songs') && tab === 'home' ||
+      view === 'settings' && tab === 'settings'
+    );
+  });
 }
 
 function navConnect() {
-  // Para qualquer heartbeat de visibilidade
   registerLeaderOnline(false);
   if (peer) { try { peer.destroy(); } catch {} peer = null; }
-  connections = [];
-  role = '';
+  connections = []; role = '';
   showScreen('screen-setup');
-  // Reinicia polling de líderes
   if (leaderPollId) clearInterval(leaderPollId);
   pollLeaders();
   leaderPollId = setInterval(pollLeaders, 8000);
@@ -307,14 +295,17 @@ function navHome() {
   if (role === 'S') renderFolders();
 }
 
+function navSettings() {
+  showDynamic(); hideAllPanels(); hideMedley(); stopMedleyWatcher();
+  setView('settings');
+  renderSettingsPage();
+}
+
 function renderFolders() {
   pastaAtiva = ''; musicaAtivaId = null; musicaAtivaIndex = -1;
   showDynamic(); hideAllPanels(); hideMedley(); stopMedleyWatcher();
   setView('folders');
-  let html = `<div class="view-header">
-    <div class="view-title">Minhas Pastas</div>
-    <button class="btn-settings" onclick="openSettings()" title="Configurações">⚙️</button>
-  </div><div class="folders-grid">`;
+  let html = `<div class="view-header"><div class="view-title">Minhas Pastas</div></div><div class="folders-grid">`;
   Object.keys(db.pastas).forEach(nome => {
     html += `<div class="folder-card" onclick="openFolder('${esc(nome)}')">
       <button class="folder-menu-btn" onclick="event.stopPropagation(); openFolderMenu(event, '${esc(nome)}')">⋮</button>
@@ -336,10 +327,7 @@ function openFolder(nome) {
   showDynamic(); hideAllPanels(); hideMedley(); stopMedleyWatcher();
   setView('songs');
   const songs = db.pastas[nome].map(id => db.biblioteca.find(b => b.id === id)).filter(Boolean);
-  let html = `<div class="view-header">
-    <button class="back-btn" onclick="renderFolders()">← PASTAS</button>
-    <div class="view-title">${nome}</div>
-  </div><div class="songs-list">`;
+  let html = `<div class="view-header"><div class="view-title">${nome}</div></div><div class="songs-list">`;
   if (!songs.length) {
     html += `<div style="text-align:center;padding:44px;color:var(--text-dim);font-family:var(--font-mono);font-size:12px;">
       Nenhuma música ainda.<br>Toque + para adicionar.</div>`;
@@ -986,7 +974,7 @@ function exportBackup() {
   const a = document.createElement('a');
   a.href     = URL.createObjectURL(new Blob([JSON.stringify(db,null,2)], {type:'application/json'}));
   a.download = `syncmusician_${new Date().toISOString().slice(0,10)}.json`;
-  a.click(); closeBackup(); showToast('Backup exportado!');
+  a.click(); showToast('Backup exportado!');
 }
 function importBackup(e) {
   const file = e.target.files[0]; if (!file) return;
@@ -994,7 +982,7 @@ function importBackup(e) {
   fr.onload = ev => {
     try {
       const p = JSON.parse(ev.target.result);
-      if (p.pastas && p.biblioteca) { db = p; salvarDB(); closeBackup(); renderFolders(); showToast('Backup restaurado!'); }
+      if (p.pastas && p.biblioteca) { db = p; salvarDB(); renderFolders(); showToast('Backup restaurado!'); }
       else showToast('Arquivo inválido.');
     } catch { showToast('Erro ao ler arquivo.'); }
   };
@@ -1063,42 +1051,123 @@ function deleteFolder(nome) {
 }
 
 // ════════════════════════════════════
-//  SETTINGS
+//  SETTINGS PAGE
 // ════════════════════════════════════
-function openSettings() {
-  $('settings-medley').checked     = settings.medleyEnabled;
-  $('settings-edit').checked       = settings.editEnabled;
-  $('settings-display-name').value = settings.displayName || '';
-  if ($('settings-visible'))       $('settings-visible').checked = settings.isVisible;
-  if ($('settings-peer-id-preview') && peerIdGlobal)
-    $('settings-peer-id-preview').textContent = peerIdGlobal;
-  // Seção de conexão só aparece para líder
-  const connSection = $('settings-connection-section');
-  if (connSection) connSection.style.display = role === 'S' ? 'block' : 'none';
-  $('modal-settings').classList.add('open');
+function openSettings() { navSettings(); }
+function closeSettings() { navHome(); }
+
+function renderSettingsPage() {
+  const qrSrc = peerIdGlobal
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(peerIdGlobal)}`
+    : '';
+  const peerId = peerIdGlobal || '—';
+  const isLeader = role === 'S';
+
+  const connectionSection = isLeader ? `
+    <div class="spage-section">Conexão</div>
+
+    <div class="spage-row col">
+      <div class="spage-label">Ficar visível</div>
+      <div class="spage-sub">Aparece na lista de líderes para músicos conectarem</div>
+      <label class="toggle" style="margin-top:10px;">
+        <input type="checkbox" id="sp-visible" ${settings.isVisible ? 'checked' : ''}
+               onchange="toggleLeaderVisibility(this)">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
+    <div class="spage-row col">
+      <div class="spage-label">QR Code da sessão</div>
+      <div class="spage-sub">Músicos escaneiam para conectar</div>
+      ${qrSrc ? `<img src="${qrSrc}" class="spage-qr" alt="QR Code">` : '<div class="spage-sub" style="margin-top:8px;">Inicie como líder para gerar o QR</div>'}
+    </div>
+
+    <div class="spage-row">
+      <div>
+        <div class="spage-label">ID da sessão</div>
+        <div class="spage-sub" style="word-break:break-all;max-width:200px;">${peerId}</div>
+      </div>
+      <button class="btn-spage" onclick="copyID()">COPIAR</button>
+    </div>
+  ` : '';
+
+  dynamicContent.innerHTML = `
+    <div class="settings-page">
+
+      <div class="spage-section">Meu perfil</div>
+      <div class="spage-row col">
+        <div class="spage-label">Nome de exibição</div>
+        <div class="spage-sub">Aparece para músicos na lista de líderes</div>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <input type="text" id="sp-name" class="input-field" style="flex:1;"
+                 value="${settings.displayName || ''}" placeholder="Ex: Pastor João">
+          <button class="btn-spage" onclick="saveDisplayName()">SALVAR</button>
+        </div>
+      </div>
+
+      ${connectionSection}
+
+      <div class="spage-section">Dados</div>
+      <div class="spage-row">
+        <div>
+          <div class="spage-label">Exportar backup</div>
+          <div class="spage-sub">Salva músicas e pastas num arquivo</div>
+        </div>
+        <button class="btn-spage" onclick="exportBackup()">EXPORTAR</button>
+      </div>
+      <div class="spage-row">
+        <div>
+          <div class="spage-label">Importar backup</div>
+          <div class="spage-sub">Restaura de um arquivo salvo</div>
+        </div>
+        <button class="btn-spage" onclick="document.getElementById('import-file').click()">IMPORTAR</button>
+      </div>
+      <input type="file" id="import-file" accept=".json" style="display:none;" onchange="importBackup(event)">
+
+      <div class="spage-section">Funcionalidades</div>
+      <div class="spage-row">
+        <div>
+          <div class="spage-label">Sugestão de Medley</div>
+          <div class="spage-sub">Sugere a próxima música compatível no tom</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="sp-medley" ${settings.medleyEnabled ? 'checked' : ''}
+                 onchange="toggleSetting('medleyEnabled', this)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="spage-row">
+        <div>
+          <div class="spage-label">Editor de cifras</div>
+          <div class="spage-sub">Permite editar o texto da cifra manualmente</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="sp-edit" ${settings.editEnabled ? 'checked' : ''}
+                 onchange="toggleSetting('editEnabled', this)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+    </div>`;
 }
-function closeSettings() { $('modal-settings').classList.remove('open'); }
 
 function saveDisplayName() {
-  const name = $('settings-display-name').value.trim();
+  const el = $('sp-name') || $('settings-display-name');
+  const name = el ? el.value.trim() : '';
   if (!name) { showToast('Digite um nome'); return; }
-  settings.displayName = name;
-  saveSettings();
+  settings.displayName = name; saveSettings();
   showToast('Nome salvo!');
-  // Atualiza no servidor se estiver visível
   if (settings.isVisible && peerIdGlobal) registerLeaderOnline(true);
 }
 
 function toggleLeaderVisibility(el) {
-  settings.isVisible = el.checked;
-  saveSettings();
+  settings.isVisible = el.checked; saveSettings();
   registerLeaderOnline(el.checked);
   showToast(el.checked ? 'Você está visível 📡' : 'Visibilidade desativada');
 }
 
 function toggleSetting(key, el) {
-  settings[key] = el.checked;
-  saveSettings();
+  settings[key] = el.checked; saveSettings();
   if (key === 'medleyEnabled' && !settings.medleyEnabled) hideMedley();
   if (key === 'editEnabled') {
     const btn = $('btn-edit-toggle');
