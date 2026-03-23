@@ -259,6 +259,12 @@ function receiveSong(body, tone) {
 // ════════════════════════════════════
 //  NAVIGATION — view controller
 // ════════════════════════════════════
+const NAV_ICONS = {
+  connect:  ['ph-wifi-high',  'ph-wifi-high-fill'],
+  home:     ['ph-house',      'ph-house-fill'],
+  settings: ['ph-gear',       'ph-gear-fill'],
+};
+
 function setView(view) {
   const inCifra = view === 'cifra' || view === 'edit';
 
@@ -267,17 +273,24 @@ function setView(view) {
   if (nav) nav.style.display = inCifra ? 'none' : 'flex';
 
   // FABs
-  $('fab-add').style.display  = view === 'songs'  ? 'flex' : 'none';
-  $('fab-back').style.display = inCifra           ? 'flex' : 'none';
-  $('fab-save').style.display = view === 'edit'   ? 'flex' : 'none';
+  $('fab-add').style.display  = view === 'songs' ? 'flex' : 'none';
+  $('fab-back').style.display = inCifra          ? 'flex' : 'none';
+  $('fab-save').style.display = view === 'edit'  ? 'flex' : 'none';
 
-  // Active tab
+  // Active tab + icon outline→filled swap
+  const activeTab =
+    (view === 'folders' || view === 'songs') ? 'home' :
+    view === 'settings' ? 'settings' : null;
+
   document.querySelectorAll('.nav-tab').forEach(t => {
-    const tab = t.dataset.tab;
-    t.classList.toggle('active',
-      (view === 'folders' || view === 'songs') && tab === 'home' ||
-      view === 'settings' && tab === 'settings'
-    );
+    const tab    = t.dataset.tab;
+    const active = tab === activeTab;
+    t.classList.toggle('active', active);
+    const icon = t.querySelector('.icon-ph');
+    if (icon && NAV_ICONS[tab]) {
+      const [outline, filled] = NAV_ICONS[tab];
+      icon.className = `ph ${active ? filled : outline} icon-ph`;
+    }
   });
 }
 
