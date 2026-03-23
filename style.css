@@ -110,8 +110,14 @@ html, body {
 #reader-container { width: 100%; margin-top: 12px; border-radius: 10px; overflow: hidden; display: none; }
 #reader { width: 100%; }
 
-/* ── APP HEADER ── */
-#screen-app { background: var(--bg); height: 100vh; }
+/* ── APP SCREEN ── */
+#screen-app {
+  background: var(--bg);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 .app-header {
   height: var(--header-h); background: var(--surface);
   border-bottom: 1px solid var(--border);

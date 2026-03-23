@@ -295,6 +295,14 @@ function navHome() {
   if (role === 'S') renderFolders();
 }
 
+// Logo no header — volta para a página anterior
+function logoBack() {
+  if (isEditMode) { cancelEdit(); return; }
+  if (musicaAtivaId) { backFromSong(); return; }  // cifra → pasta
+  if (pastaAtiva)    { renderFolders(); return; }  // pasta → pastas
+  // já na raiz — não faz nada
+}
+
 function navSettings() {
   showDynamic(); hideAllPanels(); hideMedley(); stopMedleyWatcher();
   setView('settings');
