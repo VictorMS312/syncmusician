@@ -843,7 +843,7 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
   display: flex; align-items: stretch;
   flex-shrink: 0; z-index: 50;
   /* Safe area: iPhone home bar + Android nav bar */
-  padding-bottom: dvh(safe-area-inset-bottom, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   min-height: 62px;
 }
 .nav-tab {
@@ -867,7 +867,9 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
   -webkit-overflow-scrolling: touch; touch-action: pan-y;
   scrollbar-width: none; background: var(--bg);
   /* Ensure content doesn't hide behind nav */
-  padding-bottom: 0;
+ /* padding-bottom: 0;*/
+  padding-bottom: calc(70px + env(safe-area-inset-bottom));
+  
 }
 #content-area::-webkit-scrollbar { display: none; }
 
