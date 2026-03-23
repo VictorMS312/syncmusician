@@ -373,5 +373,43 @@ app.get('/health', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────
+//  DESCOBERTA DE LÍDERES
+// ─────────────────────────────────────────────────────
+
+// POST /leader/online  body: { peerId, name }
+app.post('/leader/online', async (req, res) => {
+  const { peerId, name } = req.body;
+  if (!peerId) return res.status(400).json({ error: 'peerId obrigatório' });
+  try {
+    await supa.post('/leaders_online',
+      { peer_id: peerId, name: name || 'Líder', updated_at: new Date().toISOString() },
+      { params: { on_conflict: 'peer_id' }, headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' } }
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.response?.data || e.message }); }
+});
+
+// DELETE /leader/offline  body: { peerId }
+app.delete('/leader/offline', async (req, res) => {
+  const { peerId } = req.body;
+  if (!peerId) return res.status(400).json({ error: 'peerId obrigatório' });
+  try {
+    await supa.delete('/leaders_online', { params: { peer_id: `eq.${peerId}` } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.response?.data || e.message }); }
+});
+
+// GET /leaders  — líderes ativos nos últimos 3 minutos
+app.get('/leaders', async (req, res) => {
+  try {
+    const since = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+    const r = await supa.get('/leaders_online', {
+      params: { select: 'peer_id,name', updated_at: `gte.${since}`, order: 'updated_at.desc', limit: 20 },
+    });
+    res.json({ leaders: r.data || [] });
+  } catch (e) { res.status(500).json({ error: e.response?.data || e.message }); }
+});
+
+// ─────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));

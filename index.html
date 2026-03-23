@@ -21,11 +21,21 @@
     <div class="logo-icon">🎵</div>
     <div class="logo-text">Sync<span>Musician</span></div>
   </div>
-  <div class="setup-version">Pro · v8.1</div>
+  <div class="setup-version">Pro · v8.2</div>
 
   <div class="setup-card">
     <div class="setup-card-label">Você comanda o show?</div>
-    <button class="btn-leader" onclick="initRole('S')">SOU O LÍDER</button>
+    <div class="setup-name-row">
+      <input type="text" id="leader-name-input" class="input-field"
+             placeholder="Seu nome (ex: Pastor João)"
+             autocomplete="off" spellcheck="false">
+    </div>
+    <div class="setup-leader-actions">
+      <button class="btn-leader" onclick="initRole('S')">SOU O LÍDER</button>
+      <button class="btn-visible" id="btn-become-visible" onclick="initRoleVisible()">
+        📡 Ficar visível
+      </button>
+    </div>
   </div>
 
   <div class="setup-card">
@@ -40,23 +50,33 @@
     <div id="reader-container"><div id="reader"></div></div>
     <button class="btn-musician" onclick="initRole('M')">CONECTAR COMO MÚSICO</button>
   </div>
+
+  <!-- Lista de líderes disponíveis -->
+  <div class="setup-card" id="leaders-card" style="display:none;">
+    <div class="setup-card-label">🎸 Líderes disponíveis</div>
+    <div id="leaders-list">
+      <div class="leaders-empty">Nenhum líder disponível no momento</div>
+    </div>
+  </div>
 </div>
 
 <!-- ══ APP ══ -->
 <div id="screen-app" class="screen">
+
+  <!-- Header: logo esquerda, status direita -->
   <div class="app-header">
     <div class="header-left">
+      <div class="header-logo-icon">🎵</div>
+      <div class="header-logo-text">Sync<span>Musician</span></div>
+    </div>
+    <div class="header-right">
+      <div id="peer-badge" class="peer-badge"></div>
       <div id="status-dot" class="status-dot"></div>
       <div id="status-text">—</div>
-      <div id="peer-badge" class="peer-badge"></div>
-    </div>
-    <div class="header-right" id="leader-controls" style="display:none;">
-      <button class="btn-hdr" onclick="copyID()">COPIAR ID</button>
-      <button class="btn-hdr qr-btn" onclick="toggleQR()">QR</button>
-      <button class="btn-hdr bkp-btn" onclick="openBackup()" title="Backup">💾</button>
     </div>
   </div>
 
+  <!-- Controls bar (cifra) -->
   <div id="controls-bar">
     <div class="ctrl-group">
       <button class="btn-ctrl del"  onclick="excluirMusica()">✕ APAGAR</button>
@@ -96,6 +116,23 @@
     <div id="cifra-container"></div>
     <textarea id="edit-textarea" spellcheck="false"></textarea>
   </div>
+
+  <!-- Bottom Navigation (oculto na view de cifra) -->
+  <nav id="bottom-nav" style="display:none;">
+    <button class="nav-tab" data-tab="connect" onclick="navConnect()">
+      <span class="nav-icon">🔗</span>
+      <span class="nav-label">Conexão</span>
+    </button>
+    <button class="nav-tab" data-tab="home" onclick="navHome()">
+      <span class="nav-icon">🏠</span>
+      <span class="nav-label">Início</span>
+    </button>
+    <button class="nav-tab" data-tab="settings" onclick="openSettings()">
+      <span class="nav-icon">⚙️</span>
+      <span class="nav-label">Config</span>
+    </button>
+  </nav>
+
 </div>
 
 <!-- ══ QR MODAL ══ -->
@@ -114,15 +151,11 @@
       <div class="modal-title">Adicionar Música</div>
       <button class="modal-close" onclick="closeLibrary()">✕</button>
     </div>
-
-    <!-- Abas: Buscar / Link / Manual -->
     <div class="lib-tabs">
       <button class="lib-tab active" data-tab="search" onclick="switchLibTab(this)">🔍 Buscar</button>
       <button class="lib-tab" data-tab="link"   onclick="switchLibTab(this)">🔗 Link</button>
       <button class="lib-tab" data-tab="manual" onclick="switchLibTab(this)">✎ Manual</button>
     </div>
-
-    <!-- Aba: Buscar -->
     <div class="lib-tab-content active" id="tab-search">
       <div class="modal-body">
         <div class="search-row">
@@ -137,8 +170,6 @@
         <div class="search-empty">Digite o nome da música acima</div>
       </div>
     </div>
-
-    <!-- Aba: Link -->
     <div class="lib-tab-content" id="tab-link">
       <div class="modal-body">
         <input type="text" id="url-input" class="input-field" placeholder="Link direto da cifra..." style="width:100%;">
@@ -149,8 +180,6 @@
         <div id="library-list"></div>
       </div>
     </div>
-
-    <!-- Aba: Manual -->
     <div class="lib-tab-content" id="tab-manual">
       <div class="modal-body">
         <input type="text" id="manual-title-input" class="input-field" placeholder="Nome da música" style="width:100%;">
@@ -158,38 +187,81 @@
         <button class="btn-manual-save" onclick="saveManual()">SALVAR CIFRA</button>
       </div>
     </div>
-
   </div>
 </div>
 
-<!-- ══ BACKUP MODAL ══ -->
-<div id="modal-backup">
-  <div class="bkp-title">💾 Backup & Restauração</div>
-  <div class="bkp-sub">Exporte seus dados para guardar ou transferir para outro dispositivo.</div>
-  <button class="btn-bkp exp" onclick="exportBackup()">EXPORTAR BACKUP</button>
-  <button class="btn-bkp imp" onclick="document.getElementById('import-file').click()">IMPORTAR BACKUP</button>
-  <input type="file" id="import-file" accept=".json" style="display:none;" onchange="importBackup(event)">
-  <button class="btn-bkp cls" onclick="closeBackup()">CANCELAR</button>
-</div>
-
-<!-- ══ FABs ══ -->
-<button id="fab-add"  class="fab" onclick="openLibrary()">+</button>
-<button id="fab-home" class="fab" onclick="goHome()">🏠</button>
-<div    id="fab-back" class="fab" onclick="fabBackHandler()">← VOLTAR</div>
-<div    id="fab-save" class="fab" onclick="saveEdit()">✓ SALVAR</div>
-
 <!-- ══ SETTINGS MODAL ══ -->
 <div id="modal-settings" class="modal-overlay">
-  <div class="modal-sheet" style="max-height:60vh;">
+  <div class="modal-sheet" style="max-height:88vh;">
     <div class="modal-handle"></div>
     <div class="modal-header">
       <div class="modal-title">⚙️ Configurações</div>
       <button class="modal-close" onclick="closeSettings()">✕</button>
     </div>
-    <div class="lib-scroll" style="padding:0 18px 24px;">
+    <div class="lib-scroll" style="padding:0 18px 40px;">
 
+      <!-- Perfil -->
+      <div class="settings-section-label">Meu perfil</div>
+      <div class="settings-row" style="align-items:flex-start; flex-direction:column; gap:8px;">
+        <div class="settings-row-title">Nome de exibição</div>
+        <div class="settings-row-sub">Aparece para músicos quando você fica visível</div>
+        <div style="display:flex;gap:8px;width:100%;">
+          <input type="text" id="settings-display-name" class="input-field"
+                 placeholder="Ex: Pastor João" style="flex:1;">
+          <button class="btn-search" onclick="saveDisplayName()" style="white-space:nowrap;">SALVAR</button>
+        </div>
+      </div>
+
+      <!-- Conexão — só para líder -->
+      <div id="settings-connection-section">
+        <div class="settings-section-label">Conexão</div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-title">ID da sessão</div>
+            <div class="settings-row-sub" id="settings-peer-id-preview">—</div>
+          </div>
+          <button class="btn-search" onclick="copyID()" style="font-size:10px;padding:6px 12px;">COPIAR</button>
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-title">QR Code</div>
+            <div class="settings-row-sub">Músicos escaneiam para conectar</div>
+          </div>
+          <button class="btn-search" onclick="toggleQR()" style="font-size:10px;padding:6px 12px;">MOSTRAR</button>
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-title">Ficar visível</div>
+            <div class="settings-row-sub">Aparece na lista da tela inicial</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="settings-visible"
+                   onchange="toggleLeaderVisibility(this)">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Dados -->
+      <div class="settings-section-label">Dados</div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-title">Exportar backup</div>
+          <div class="settings-row-sub">Salva todas as músicas e pastas</div>
+        </div>
+        <button class="btn-search" onclick="exportBackup()" style="font-size:10px;padding:6px 12px;">EXPORTAR</button>
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-title">Importar backup</div>
+          <div class="settings-row-sub">Restaura de um arquivo salvo</div>
+        </div>
+        <button class="btn-search" onclick="document.getElementById('import-file').click()" style="font-size:10px;padding:6px 12px;">IMPORTAR</button>
+      </div>
+      <input type="file" id="import-file" accept=".json" style="display:none;" onchange="importBackup(event)">
+
+      <!-- Funcionalidades -->
       <div class="settings-section-label">Funcionalidades</div>
-
       <div class="settings-row">
         <div>
           <div class="settings-row-title">Sugestão de Medley</div>
@@ -201,7 +273,6 @@
           <span class="toggle-slider"></span>
         </label>
       </div>
-
       <div class="settings-row">
         <div>
           <div class="settings-row-title">Editor de cifras</div>
@@ -217,6 +288,11 @@
     </div>
   </div>
 </div>
+
+<!-- ══ FABs ══ -->
+<button id="fab-add"  class="fab" onclick="openLibrary()">+</button>
+<div    id="fab-back" class="fab" onclick="fabBackHandler()">← VOLTAR</div>
+<div    id="fab-save" class="fab" onclick="saveEdit()">✓ SALVAR</div>
 
 <!-- ══ CHORD POPUP ══ -->
 <div id="chord-overlay" onclick="closeChordPopup()"></div>
@@ -244,7 +320,6 @@
 </div>
 
 <div id="toast"></div>
-
 <script src="app.js"></script>
 </body>
 </html>

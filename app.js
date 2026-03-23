@@ -8,8 +8,10 @@ let db = JSON.parse(localStorage.getItem('syncmusician_v8')) || {
 
 // Configurações (toggles de funcionalidades)
 let settings = JSON.parse(localStorage.getItem('syncmusician_settings')) || {
-  medleyEnabled:  true,
-  editEnabled:    true,
+  medleyEnabled: true,
+  editEnabled:   true,
+  displayName:   '',
+  isVisible:     false,
 };
 function saveSettings() { localStorage.setItem('syncmusician_settings', JSON.stringify(settings)); }
 
@@ -24,6 +26,8 @@ let medleySuggestion = null;
 let medleyWatcherId = null;
 // Histórico de medleys para não repetir músicas na sessão
 let medleyHistory = [];
+let leaderPollId = null;  // polling de líderes disponíveis
+let keepAliveId  = null;  // heartbeat para manter líder visível
 
 const notes = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 
@@ -47,6 +51,11 @@ window.onload = () => {
   if (lastId) $('join-id').value = lastId;
   buildToneGrid();
   migrarBiblioteca();
+  // Restaura nome salvo
+  if (settings.displayName) $('leader-name-input').value = settings.displayName;
+  // Começa a listar líderes disponíveis
+  pollLeaders();
+  leaderPollId = setInterval(pollLeaders, 8000);
 };
 
 // Detecta o tom da cifra usando campo harmônico
@@ -119,10 +128,36 @@ function initRole(r) {
     if (!id) { showToast('Digite o ID do Líder'); return; }
     localStorage.setItem('last_leader_id', id);
   }
+  // Salva nome se preenchido
+  const nameInput = $('leader-name-input');
+  if (nameInput && nameInput.value.trim()) {
+    settings.displayName = nameInput.value.trim();
+    saveSettings();
+  }
+  // Para polling de líderes
+  if (leaderPollId) { clearInterval(leaderPollId); leaderPollId = null; }
   peer = new Peer();
   showScreen('screen-app');
+  $('screen-app').classList.add('nav-visible');
   if (role === 'S') setupLeader();
   else setupMusician($('join-id').value.trim());
+}
+
+// Inicia como líder E fica visível ao mesmo tempo
+function initRoleVisible() {
+  role = 'S';
+  const nameInput = $('leader-name-input');
+  if (nameInput && nameInput.value.trim()) {
+    settings.displayName = nameInput.value.trim();
+    saveSettings();
+  }
+  settings.isVisible = true;
+  saveSettings();
+  if (leaderPollId) { clearInterval(leaderPollId); leaderPollId = null; }
+  peer = new Peer();
+  showScreen('screen-app');
+  $('screen-app').classList.add('nav-visible');
+  setupLeader(true); // true = registrar como visível após peer abrir
 }
 
 function showScreen(id) {
@@ -133,15 +168,20 @@ function showScreen(id) {
 // ════════════════════════════════════
 //  PEER — LEADER
 // ════════════════════════════════════
-function setupLeader() {
-  $('leader-controls').style.display = 'flex';
-
+function setupLeader(becomeVisible) {
   peer.on('open', id => {
     peerIdGlobal = id;
-    $('status-dot').className = 'status-dot leader';
+    $('status-dot').className    = 'status-dot leader';
     $('status-text').textContent = 'LÍDER';
     $('qr-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(id)}`;
-    $('qr-id-text').textContent = id;
+    $('qr-id-text').textContent  = id;
+    // Mostra ID nas configurações
+    const prev = $('settings-peer-id-preview');
+    if (prev) prev.textContent = id;
+
+    if (becomeVisible || settings.isVisible) {
+      registerLeaderOnline(true);
+    }
   });
 
   peer.on('error', err => showToast('Erro: ' + err.type));
@@ -157,6 +197,7 @@ function setupLeader() {
     conn.on('error', () => { connections = connections.filter(c => c !== conn); updatePeerBadge(); });
   });
 
+  setView('folders');
   renderFolders();
 }
 
@@ -199,10 +240,11 @@ function setupMusician(leaderId) {
 
   peer.on('error', err => {
     showToast('Erro: ' + err.type);
-    $('status-dot').className  = 'status-dot offline';
+    $('status-dot').className    = 'status-dot offline';
     $('status-text').textContent = 'ERRO';
   });
 
+  setView('folders');
   dynamicContent.innerHTML = `
     <div style="padding:64px 22px;text-align:center;color:var(--text-dim);">
       <div style="font-size:46px;margin-bottom:14px;">🎸</div>
@@ -224,23 +266,51 @@ function receiveSong(body, tone) {
 }
 
 // ════════════════════════════════════
-//  NAVIGATION
+//  NAVIGATION — view controller
 // ════════════════════════════════════
-function setFABs(view) {
-  $('fab-add').style.display  = 'none';
-  $('fab-home').style.display = 'none';
-  $('fab-back').style.display = 'none';
-  $('fab-save').style.display = 'none';
-  if (view === 'folders') $('fab-home').style.display = 'flex';
-  if (view === 'songs')   $('fab-add').style.display  = 'flex';
-  if (view === 'cifra')   $('fab-back').style.display = 'flex';
-  if (view === 'edit')  { $('fab-back').style.display = 'flex'; $('fab-save').style.display = 'flex'; }
+function setView(view) {
+  const inCifra = view === 'cifra' || view === 'edit';
+
+  // Bottom nav: oculto na cifra
+  const nav = $('bottom-nav');
+  if (nav) nav.style.display = inCifra ? 'none' : 'flex';
+
+  // Padding do content-area
+  const app = $('screen-app');
+  if (app) app.classList.toggle('nav-visible', !inCifra);
+
+  // Active tab na nav
+  document.querySelectorAll('.nav-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.tab === 'home' && !inCifra);
+  });
+
+  // FABs
+  $('fab-add').style.display  = view === 'songs'  ? 'flex' : 'none';
+  $('fab-back').style.display = inCifra           ? 'flex' : 'none';
+  $('fab-save').style.display = view === 'edit'   ? 'flex' : 'none';
+}
+
+function navConnect() {
+  // Para qualquer heartbeat de visibilidade
+  registerLeaderOnline(false);
+  if (peer) { try { peer.destroy(); } catch {} peer = null; }
+  connections = [];
+  role = '';
+  showScreen('screen-setup');
+  // Reinicia polling de líderes
+  if (leaderPollId) clearInterval(leaderPollId);
+  pollLeaders();
+  leaderPollId = setInterval(pollLeaders, 8000);
+}
+
+function navHome() {
+  if (role === 'S') renderFolders();
 }
 
 function renderFolders() {
   pastaAtiva = ''; musicaAtivaId = null; musicaAtivaIndex = -1;
   showDynamic(); hideAllPanels(); hideMedley(); stopMedleyWatcher();
-  setFABs('folders');
+  setView('folders');
   let html = `<div class="view-header">
     <div class="view-title">Minhas Pastas</div>
     <button class="btn-settings" onclick="openSettings()" title="Configurações">⚙️</button>
@@ -264,7 +334,7 @@ function openFolder(nome) {
   pastaAtiva = nome;
   medleyHistory = []; // reseta histórico ao mudar de pasta
   showDynamic(); hideAllPanels(); hideMedley(); stopMedleyWatcher();
-  setFABs('songs');
+  setView('songs');
   const songs = db.pastas[nome].map(id => db.biblioteca.find(b => b.id === id)).filter(Boolean);
   let html = `<div class="view-header">
     <button class="back-btn" onclick="renderFolders()">← PASTAS</button>
@@ -316,7 +386,7 @@ function openSong(index) {
     syncMusicians(currentText, currentNote);
   }
 
-  setFABs('cifra');
+  setView('cifra');
   hideMedley();
   stopScroll();
   isScrolling = false;
@@ -517,14 +587,14 @@ function enterEditMode() {
   cifraContainer.style.display = 'none';
   editTextarea.style.display   = 'block';
   $('btn-edit-toggle').textContent = '✕ CANCELAR';
-  setFABs('edit');
+  setView('edit');
 }
 function cancelEdit() {
   isEditMode = false;
   editTextarea.style.display   = 'none';
   showCifraView();
   $('btn-edit-toggle').textContent = '✎ EDITAR';
-  setFABs('cifra');
+  setView('cifra');
 }
 function saveEdit() {
   const txt = editTextarea.value;
@@ -910,8 +980,8 @@ function addFromLibrary(mId) {
 // ════════════════════════════════════
 //  BACKUP
 // ════════════════════════════════════
-function openBackup()  { $('modal-backup').classList.add('open'); }
-function closeBackup() { $('modal-backup').classList.remove('open'); }
+function openBackup()  { openSettings(); }
+function closeBackup() { closeSettings(); }
 function exportBackup() {
   const a = document.createElement('a');
   a.href     = URL.createObjectURL(new Blob([JSON.stringify(db,null,2)], {type:'application/json'}));
@@ -996,11 +1066,35 @@ function deleteFolder(nome) {
 //  SETTINGS
 // ════════════════════════════════════
 function openSettings() {
-  $('settings-medley').checked = settings.medleyEnabled;
-  $('settings-edit').checked   = settings.editEnabled;
+  $('settings-medley').checked     = settings.medleyEnabled;
+  $('settings-edit').checked       = settings.editEnabled;
+  $('settings-display-name').value = settings.displayName || '';
+  if ($('settings-visible'))       $('settings-visible').checked = settings.isVisible;
+  if ($('settings-peer-id-preview') && peerIdGlobal)
+    $('settings-peer-id-preview').textContent = peerIdGlobal;
+  // Seção de conexão só aparece para líder
+  const connSection = $('settings-connection-section');
+  if (connSection) connSection.style.display = role === 'S' ? 'block' : 'none';
   $('modal-settings').classList.add('open');
 }
 function closeSettings() { $('modal-settings').classList.remove('open'); }
+
+function saveDisplayName() {
+  const name = $('settings-display-name').value.trim();
+  if (!name) { showToast('Digite um nome'); return; }
+  settings.displayName = name;
+  saveSettings();
+  showToast('Nome salvo!');
+  // Atualiza no servidor se estiver visível
+  if (settings.isVisible && peerIdGlobal) registerLeaderOnline(true);
+}
+
+function toggleLeaderVisibility(el) {
+  settings.isVisible = el.checked;
+  saveSettings();
+  registerLeaderOnline(el.checked);
+  showToast(el.checked ? 'Você está visível 📡' : 'Visibilidade desativada');
+}
 
 function toggleSetting(key, el) {
   settings[key] = el.checked;
@@ -1011,6 +1105,7 @@ function toggleSetting(key, el) {
     if (btn) btn.style.display = settings.editEnabled ? '' : 'none';
   }
 }
+
 function toggleQR() { $('modal-qr').classList.toggle('open'); }
 
 function copyID() {
@@ -1090,9 +1185,77 @@ function syncMusicians(body, tone) {
 }
 
 // ════════════════════════════════════
+//  DESCOBERTA DE LÍDERES
+// ════════════════════════════════════
+const API = 'https://syncmusician.onrender.com';
+
+async function registerLeaderOnline(online) {
+  if (!peerIdGlobal) return;
+  try {
+    if (online) {
+      const name = settings.displayName || 'Líder';
+      await fetch(`${API}/leader/online`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ peerId: peerIdGlobal, name }),
+      });
+      // Heartbeat a cada 90s para manter visível
+      if (keepAliveId) clearInterval(keepAliveId);
+      keepAliveId = setInterval(() => registerLeaderOnline(true), 90000);
+    } else {
+      if (keepAliveId) { clearInterval(keepAliveId); keepAliveId = null; }
+      await fetch(`${API}/leader/offline`, {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ peerId: peerIdGlobal }),
+      });
+    }
+  } catch {}
+}
+
+async function pollLeaders() {
+  try {
+    const res  = await fetch(`${API}/leaders`);
+    const data = await res.json();
+    renderLeadersList(data.leaders || []);
+  } catch {
+    renderLeadersList([]);
+  }
+}
+
+function renderLeadersList(leaders) {
+  const card = $('leaders-card');
+  const list = $('leaders-list');
+  if (!card || !list) return;
+
+  if (leaders.length === 0) {
+    card.style.display = 'none';
+    return;
+  }
+
+  card.style.display = 'block';
+  list.innerHTML = '';
+  leaders.forEach(l => {
+    const item = document.createElement('div');
+    item.className = 'leader-item';
+    item.innerHTML = `
+      <div class="leader-item-info">
+        <div class="leader-dot"></div>
+        <div class="leader-name">${l.name}</div>
+      </div>
+      <button class="btn-connect-leader"
+              onclick="connectToLeader('${l.peer_id}')">ENTRAR</button>`;
+    list.appendChild(item);
+  });
+}
+
+function connectToLeader(peerId) {
+  $('join-id').value = peerId;
+  initRole('M');
+}
+
+// ════════════════════════════════════
 //  UTILS
 // ════════════════════════════════════
-function goHome()   { location.reload(); }
+function goHome() { navConnect(); }
 function salvarDB() { localStorage.setItem('syncmusician_v8', JSON.stringify(db)); }
 function esc(s)     { return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 
