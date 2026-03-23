@@ -114,7 +114,6 @@ html, body {
 #screen-app {
   background: var(--bg);
   height: 100vh;
-  display: flex;
   flex-direction: column;
   overflow: hidden;
 }

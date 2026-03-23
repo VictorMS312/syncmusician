@@ -1271,11 +1271,11 @@ async function registerLeaderOnline(online) {
   try {
     if (online) {
       const name = settings.displayName || 'Líder';
-      await fetch(`${API}/leader/online`, {
+      const res = await fetch(`${API}/leader/online`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ peerId: peerIdGlobal, name }),
       });
-      // Heartbeat a cada 90s para manter visível
+      if (!res.ok) return; // tabela pode não existir — ignora
       if (keepAliveId) clearInterval(keepAliveId);
       keepAliveId = setInterval(() => registerLeaderOnline(true), 90000);
     } else {
@@ -1283,18 +1283,19 @@ async function registerLeaderOnline(online) {
       await fetch(`${API}/leader/offline`, {
         method: 'DELETE', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ peerId: peerIdGlobal }),
-      });
+      }).catch(() => {});
     }
   } catch {}
 }
 
 async function pollLeaders() {
   try {
-    const res  = await fetch(`${API}/leaders`);
+    const res = await fetch(`${API}/leaders`);
+    if (!res.ok) return; // tabela pode não existir ainda — ignora silenciosamente
     const data = await res.json();
     renderLeadersList(data.leaders || []);
   } catch {
-    renderLeadersList([]);
+    // sem internet ou servidor dormindo — não faz nada
   }
 }
 
