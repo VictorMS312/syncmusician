@@ -9,11 +9,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <script src="https://unpkg.com/html5-qrcode"></script>
-<!-- Phosphor Icons: outline default, filled on active -->
-<script src="https://unpkg.com/@phosphor-icons/web@2.1.1/src/index.js"
-        onerror="document.querySelectorAll('.icon-emoji').forEach(e=>e.style.display='block');
-                 document.querySelectorAll('.icon-ph').forEach(e=>e.style.display='none');">
-</script>
+<!-- Phosphor Icons -->
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css"
+      onerror="document.querySelectorAll('.icon-emoji').forEach(e=>e.style.display='inline');document.querySelectorAll('.icon-ph').forEach(e=>e.style.display='none')">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
@@ -35,12 +34,7 @@
              placeholder="Seu nome (obrigatório)"
              autocomplete="off" spellcheck="false">
     </div>
-    <div class="setup-leader-actions">
-      <button class="btn-leader" onclick="initRole('S')">SOU O LÍDER</button>
-      <button class="btn-visible" id="btn-become-visible" onclick="initRoleVisible()">
-        📡 Ficar visível
-      </button>
-    </div>
+    <button class="btn-leader" onclick="initRole('S')">SOU O LÍDER</button>
   </div>
 
   <div class="setup-card">

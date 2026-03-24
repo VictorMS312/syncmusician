@@ -396,18 +396,15 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
 }
 .fab:active { transform: scale(0.91) !important; }
 #fab-add {
-  bottom: 22px; right: 18px; width: 52px; height: 52px;
+  /* 62px nav + 12px gap + safe area */
+  bottom: calc(62px + max(env(safe-area-inset-bottom), 10px) + 12px);
+  right: 18px; width: 52px; height: 52px;
   border-radius: 50%; background: var(--blue); color: white; font-size: 27px;
   box-shadow: 0 4px 18px rgba(59,130,246,0.4);
 }
-#fab-home {
-  bottom: 22px; right: 18px; width: 52px; height: 52px;
-  border-radius: 50%; background: var(--surface2);
-  border: 1px solid var(--border2); color: var(--text); font-size: 21px;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.5);
-}
 #fab-back {
-  bottom: 22px; left: 16px; padding: 11px 16px;
+  bottom: calc(62px + max(env(safe-area-inset-bottom), 10px) + 12px);
+  left: 16px; padding: 11px 16px;
   border-radius: 26px; background: var(--surface2);
   border: 1px solid var(--border2); color: var(--text);
   font-family: var(--font-mono); font-size: 11px; font-weight: 700;
@@ -415,11 +412,18 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
   box-shadow: 0 4px 14px rgba(0,0,0,0.5);
 }
 #fab-save {
-  bottom: 22px; right: 18px; padding: 11px 18px;
+  bottom: calc(62px + max(env(safe-area-inset-bottom), 10px) + 12px);
+  right: 18px; padding: 11px 18px;
   border-radius: 26px; background: var(--accent2); border: none; color: #000;
   font-family: var(--font-mono); font-size: 11px; font-weight: 700;
   letter-spacing: 1px; gap: 5px;
   box-shadow: 0 4px 16px rgba(16,185,129,0.35);
+}
+/* FABs ficam na posição normal quando nav está oculta (cifra) */
+#bottom-nav[style*="none"] ~ #fab-add,
+#bottom-nav[style*="none"] ~ #fab-back,
+#bottom-nav[style*="none"] ~ #fab-save {
+  bottom: 22px;
 }
 
 /* ── QR MODAL ── */
@@ -843,15 +847,8 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
   display: flex; align-items: stretch;
   flex-shrink: 0; z-index: 50;
   /* Safe area: iPhone home bar + Android nav bar */
-  /*padding-bottom: env(safe-area-inset-bottom, 0px);*/
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   min-height: 62px;
-  
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding-bottom: max(env(safe-area-inset-bottom), 10px);
-  
 }
 .nav-tab {
   flex: 1; display: flex; flex-direction: column;
@@ -862,10 +859,11 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
 }
 .nav-tab:active { background: var(--surface2); }
 .nav-tab.active { color: var(--accent); }
-.nav-icon { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; }
-.nav-icon .icon-ph { font-size: 24px; line-height: 1; }
-.nav-icon .icon-emoji { font-size: 20px; line-height: 1; display: none; } /* emoji fallback */
-.nav-tab.active .icon-ph { font-weight: 700; }
+.nav-icon { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; }
+.nav-icon .icon-ph { font-size: 26px; line-height: 1; color: inherit; }
+.nav-icon .icon-emoji { font-size: 20px; line-height: 1; display: none; color: inherit; }
+.nav-tab.active .icon-ph,
+.nav-tab.active .icon-emoji { color: var(--accent); }
 .nav-label { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; }
 
 /* Content area: compensate for nav height + safe area */
@@ -874,9 +872,7 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
   -webkit-overflow-scrolling: touch; touch-action: pan-y;
   scrollbar-width: none; background: var(--bg);
   /* Ensure content doesn't hide behind nav */
- /* padding-bottom: 0;*/
-  padding-bottom: calc(70px + env(safe-area-inset-bottom));
-  
+  padding-bottom: 0;
 }
 #content-area::-webkit-scrollbar { display: none; }
 

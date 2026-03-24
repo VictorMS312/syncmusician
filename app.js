@@ -126,7 +126,9 @@ function initRole(r) {
   if (role === 'S') {
     const name = $('leader-name-input').value.trim();
     if (!name) { showToast('Digite seu nome antes de continuar'); $('leader-name-input').focus(); return; }
-    settings.displayName = name; saveSettings();
+    settings.displayName = name;
+    settings.isVisible = true; // líder sempre fica visível ao entrar
+    saveSettings();
   }
   if (role === 'M') {
     const id = $('join-id').value.trim();
@@ -136,19 +138,8 @@ function initRole(r) {
   if (leaderPollId) { clearInterval(leaderPollId); leaderPollId = null; }
   peer = new Peer();
   showScreen('screen-app');
-  if (role === 'S') setupLeader();
+  if (role === 'S') setupLeader(true); // sempre visível
   else setupMusician($('join-id').value.trim());
-}
-
-function initRoleVisible() {
-  const name = $('leader-name-input').value.trim();
-  if (!name) { showToast('Digite seu nome antes de continuar'); $('leader-name-input').focus(); return; }
-  settings.displayName = name; settings.isVisible = true; saveSettings();
-  role = 'S';
-  if (leaderPollId) { clearInterval(leaderPollId); leaderPollId = null; }
-  peer = new Peer();
-  showScreen('screen-app');
-  setupLeader(true);
 }
 
 function showScreen(id) {
@@ -294,8 +285,10 @@ function setView(view) {
   });
 }
 
-function navConnect() {
-  registerLeaderOnline(false);
+async function navConnect() {
+  // Remove líder da lista antes de sair
+  await registerLeaderOnline(false);
+  peerIdGlobal = null;
   if (peer) { try { peer.destroy(); } catch {} peer = null; }
   connections = []; role = '';
   showScreen('screen-setup');
@@ -1349,6 +1342,20 @@ function connectToLeader(peerId) {
 function goHome() { navConnect(); }
 function salvarDB() { localStorage.setItem('syncmusician_v8', JSON.stringify(db)); }
 function esc(s)     { return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+// ── Hardware/browser back button ──
+window.addEventListener('popstate', () => {
+  // Sempre empurra um estado novo para interceptar o próximo "voltar"
+  history.pushState(null, '', location.href);
+
+  if (isEditMode)   { cancelEdit();    return; }
+  if (musicaAtivaId){ backFromSong();  return; }
+  if (pastaAtiva)   { renderFolders(); return; }
+  // Na tela de pastas ou settings → não faz nada (evita sair do app)
+});
+
+// Inicializa o estado de histórico ao abrir
+history.pushState(null, '', location.href);
 
 let toastT;
 function showToast(msg) {
