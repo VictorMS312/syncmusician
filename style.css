@@ -847,8 +847,15 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
   display: flex; align-items: stretch;
   flex-shrink: 0; z-index: 50;
   /* Safe area: iPhone home bar + Android nav bar */
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  /*padding-bottom: env(safe-area-inset-bottom, 0px);*/
   min-height: 62px;
+  
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding-bottom: max(env(safe-area-inset-bottom), 10px);
+
 }
 .nav-tab {
   flex: 1; display: flex; flex-direction: column;
