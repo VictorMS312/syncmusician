@@ -847,15 +847,8 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
   display: flex; align-items: stretch;
   flex-shrink: 0; z-index: 50;
   /* Safe area: iPhone home bar + Android nav bar */
-  /*padding-bottom: env(safe-area-inset-bottom, 0px);*/
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   min-height: 62px;
-  
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding-bottom: max(env(safe-area-inset-bottom), 10px);
-
 }
 .nav-tab {
   flex: 1; display: flex; flex-direction: column;
@@ -867,10 +860,18 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
 .nav-tab:active { background: var(--surface2); }
 .nav-tab.active { color: var(--accent); }
 .nav-icon { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; }
-.nav-icon .icon-ph { font-size: 26px; line-height: 1; color: inherit; }
-.nav-icon .icon-emoji { font-size: 20px; line-height: 1; display: none; color: inherit; }
-.nav-tab.active .icon-ph,
-.nav-tab.active .icon-emoji { color: var(--accent); }
+.nav-icon .icon-outline,
+.nav-icon .icon-filled,
+.nav-icon .icon-emoji { font-size: 24px; line-height: 1; color: inherit; }
+/* Filled hidden by default, emoji hidden by default */
+.icon-filled { display: none; }
+.icon-emoji  { display: none; font-size: 20px; }
+/* When active: hide outline, show filled */
+.nav-tab.active .icon-outline { display: none; }
+.nav-tab.active .icon-filled  { display: inline; }
+/* Emoji fallback: shown only when phosphor fails (set via JS) */
+.nav-tab .icon-emoji.visible { display: inline; }
+.nav-tab.active .icon-emoji.visible { display: inline; }
 .nav-label { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; }
 
 /* Content area: compensate for nav height + safe area */

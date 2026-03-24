@@ -58,43 +58,49 @@ window.onload = () => {
   leaderPollId = setInterval(pollLeaders, 8000);
 };
 
-// Detecta o tom da cifra usando campo harmônico
-// Lógica: o acorde que aparece mais vezes E está no final da música é a tônica
+// Detecta o tom da cifra
+// Prioridade: 1) linha "Tom: X" no texto, 2) campo harmônico
 function detectKey(text) {
-  const lines      = text.split('\n');
-  const allChords  = [];
-  const lastChords = []; // últimos 20% da música
+  // 1. Tenta extrair do texto "Tom: B" / "Tom: C#m" etc.
+  const tomMatch = text.match(/\bTom\s*:\s*([A-G][#b]?(?:m(?:aj)?|dim|aug|sus)?)/i);
+  if (tomMatch) {
+    const raw = tomMatch[1];
+    const root = raw.replace(/m(?:aj)?|dim|aug|sus/g, '');
+    const norm = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[root] || root;
+    if (notes.includes(norm)) return norm;
+  }
+
+  // 2. Campo harmônico
+  const lines     = text.split('\n');
+  const allChords = [];
 
   lines.forEach((line, idx) => {
     if (!isChordLine(line)) return;
     const matches = line.match(/[A-G][#b]?(?:m(?:aj)?|dim|aug|sus)?/g) || [];
     matches.forEach(c => {
-      // Normaliza bemóis para sustenidos
-      const norm = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[c.replace(/m.*/,'')] || c.replace(/m.*/,'');
+      const root = c.replace(/m(?:aj)?|dim|aug|sus/g, '');
+      const norm = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[root] || root;
       if (!notes.includes(norm)) return;
-      allChords.push({ root: norm, isMinor: /m(?!aj)/.test(c), idx });
-      if (idx >= lines.length * 0.8) lastChords.push({ root: norm, isMinor: /m(?!aj)/.test(c) });
+      allChords.push({ root: norm, idx });
     });
   });
 
   if (allChords.length === 0) return 'C';
 
-  // Contagem de raízes
   const counts = {};
   allChords.forEach(c => { counts[c.root] = (counts[c.root] || 0) + 1; });
 
-  // O último acorde da cifra geralmente é a tônica
-  const lastLine  = [...lines].reverse().find(l => isChordLine(l));
+  // Último acorde da cifra tende a ser a tônica
+  const lastLine = [...lines].reverse().find(l => isChordLine(l));
   if (lastLine) {
-    const lastM = lastLine.trim().match(/([A-G][#b]?)(?:m(?!aj))?/);
-    if (lastM) {
-      const lastRoot = ({'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[lastM[1]] || lastM[1]);
-      if (notes.includes(lastRoot) && counts[lastRoot]) return lastRoot;
+    const m = lastLine.trim().match(/^([A-G][#b]?)/);
+    if (m) {
+      const norm = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[m[1]] || m[1];
+      if (notes.includes(norm) && counts[norm]) return norm;
     }
   }
 
-  // Fallback: raiz mais frequente
-  return Object.entries(counts).sort((a,b) => b[1]-a[1])[0][0];
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
 }
 
 // Extrai a primeira URL válida de um texto (resolve "Veja como tocar X https://...")
@@ -250,44 +256,37 @@ function receiveSong(body, tone) {
 // ════════════════════════════════════
 //  NAVIGATION — view controller
 // ════════════════════════════════════
-const NAV_ICONS = {
-  connect:  ['ph-wifi-high',  'ph-wifi-high-fill'],
-  home:     ['ph-house',      'ph-house-fill'],
-  settings: ['ph-gear',       'ph-gear-fill'],
-};
-
 function setView(view) {
   const inCifra = view === 'cifra' || view === 'edit';
 
-  // Bottom nav
   const nav = $('bottom-nav');
   if (nav) nav.style.display = inCifra ? 'none' : 'flex';
 
-  // FABs
-  $('fab-add').style.display  = view === 'songs' ? 'flex' : 'none';
-  $('fab-back').style.display = inCifra          ? 'flex' : 'none';
-  $('fab-save').style.display = view === 'edit'  ? 'flex' : 'none';
+  // fab-back removido — botão do celular cuida da navegação
+  $('fab-add').style.display = view === 'songs' ? 'flex' : 'none';
+  $('fab-back').style.display = 'none';
+  $('fab-save').style.display = view === 'edit' ? 'flex' : 'none';
 
-  // Active tab + icon outline→filled swap
   const activeTab =
     (view === 'folders' || view === 'songs') ? 'home' :
     view === 'settings' ? 'settings' : null;
 
-  document.querySelectorAll('.nav-tab').forEach(t => {
-    const tab    = t.dataset.tab;
-    const active = tab === activeTab;
-    t.classList.toggle('active', active);
-    const icon = t.querySelector('.icon-ph');
-    if (icon && NAV_ICONS[tab]) {
-      const [outline, filled] = NAV_ICONS[tab];
-      icon.className = `ph ${active ? filled : outline} icon-ph`;
-    }
-  });
+  document.querySelectorAll('.nav-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.tab === activeTab)
+  );
 }
 
 async function navConnect() {
-  // Remove líder da lista antes de sair
-  await registerLeaderOnline(false);
+  if (keepAliveId) { clearInterval(keepAliveId); keepAliveId = null; }
+  // Força remoção do líder da lista mesmo se peerIdGlobal sumiu
+  if (peerIdGlobal) {
+    try {
+      await fetch(`${API}/leader/offline`, {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ peerId: peerIdGlobal }),
+      });
+    } catch {}
+  }
   peerIdGlobal = null;
   if (peer) { try { peer.destroy(); } catch {} peer = null; }
   connections = []; role = '';
@@ -1345,16 +1344,17 @@ function esc(s)     { return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 
 // ── Hardware/browser back button ──
 window.addEventListener('popstate', () => {
-  // Sempre empurra um estado novo para interceptar o próximo "voltar"
-  history.pushState(null, '', location.href);
+  history.pushState(null, '', location.href); // intercepta o próximo
 
-  if (isEditMode)   { cancelEdit();    return; }
-  if (musicaAtivaId){ backFromSong();  return; }
-  if (pastaAtiva)   { renderFolders(); return; }
-  // Na tela de pastas ou settings → não faz nada (evita sair do app)
+  if (isEditMode)    { cancelEdit();    return; }
+  if (musicaAtivaId) { backFromSong();  return; }  // cifra → pasta
+  if (pastaAtiva)    { renderFolders(); return; }  // pasta → pastas
+
+  // Na raiz (pastas/settings) → vai para tela de conexão
+  // Mas se já está na tela de setup, deixa o sistema sair normalmente
+  const setupVisible = $('screen-setup').classList.contains('active');
+  if (!setupVisible) { navConnect(); }
 });
-
-// Inicializa o estado de histórico ao abrir
 history.pushState(null, '', location.href);
 
 let toastT;
