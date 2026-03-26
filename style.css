@@ -877,8 +877,8 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
 .nav-tab.active .icon-outline { display: none; }
 .nav-tab.active .icon-filled  { display: flex; }
 /* Emoji fallback: shown only when phosphor fails (set via JS) */
-.nav-tab .icon-emoji.visible { display: inline; }
-.nav-tab.active .icon-emoji.visible { display: inline; }
+.nav-tab .icon-emoji.visible { display: flex; }
+.nav-tab.active .icon-emoji.visible { display: flex; }
 .nav-label { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; }
 
 /* Content area: compensate for nav height + safe area */
