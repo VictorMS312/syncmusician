@@ -875,7 +875,7 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
 .icon-emoji  { display: none; font-size: 20px; }
 /* When active: hide outline, show filled */
 .nav-tab.active .icon-outline { display: none; }
-.nav-tab.active .icon-filled  { display: inline; }
+.nav-tab.active .icon-filled  { display: flex; }
 /* Emoji fallback: shown only when phosphor fails (set via JS) */
 .nav-tab .icon-emoji.visible { display: inline; }
 .nav-tab.active .icon-emoji.visible { display: inline; }
