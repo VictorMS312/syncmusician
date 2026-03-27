@@ -61,46 +61,15 @@ window.onload = () => {
 // Detecta o tom da cifra
 // Prioridade: 1) linha "Tom: X" no texto, 2) campo harmônico
 function detectKey(text) {
-  // 1. Tenta extrair do texto "Tom: B" / "Tom: C#m" etc.
+  // Extrai SOMENTE da linha "Tom: X" — não tenta adivinhar
   const tomMatch = text.match(/\bTom\s*:\s*([A-G][#b]?(?:m(?:aj)?|dim|aug|sus)?)/i);
   if (tomMatch) {
-    const raw = tomMatch[1];
+    const raw  = tomMatch[1];
     const root = raw.replace(/m(?:aj)?|dim|aug|sus/g, '');
     const norm = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[root] || root;
     if (notes.includes(norm)) return norm;
   }
-
-  // 2. Campo harmônico
-  const lines     = text.split('\n');
-  const allChords = [];
-
-  lines.forEach((line, idx) => {
-    if (!isChordLine(line)) return;
-    const matches = line.match(/[A-G][#b]?(?:m(?:aj)?|dim|aug|sus)?/g) || [];
-    matches.forEach(c => {
-      const root = c.replace(/m(?:aj)?|dim|aug|sus/g, '');
-      const norm = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[root] || root;
-      if (!notes.includes(norm)) return;
-      allChords.push({ root: norm, idx });
-    });
-  });
-
-  if (allChords.length === 0) return 'C';
-
-  const counts = {};
-  allChords.forEach(c => { counts[c.root] = (counts[c.root] || 0) + 1; });
-
-  // Último acorde da cifra tende a ser a tônica
-  const lastLine = [...lines].reverse().find(l => isChordLine(l));
-  if (lastLine) {
-    const m = lastLine.trim().match(/^([A-G][#b]?)/);
-    if (m) {
-      const norm = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[m[1]] || m[1];
-      if (notes.includes(norm) && counts[norm]) return norm;
-    }
-  }
-
-  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+  return 'C';
 }
 
 // Extrai a primeira URL válida de um texto (resolve "Veja como tocar X https://...")
@@ -380,12 +349,18 @@ function openSong(index) {
   updateToneActive();
   toneBar.style.display = 'flex';
 
-  if (role === 'S') {
-    controlsBar.style.display = 'flex';
-    // Mostra ou esconde botão de edição conforme configuração
-    $('btn-edit-toggle').style.display = settings.editEnabled ? '' : 'none';
-    syncMusicians(currentText, currentNote);
-  }
+  // Barra de controles: líder sempre, músico se editEnabled
+  controlsBar.style.display = (role === 'S' || settings.editEnabled) ? 'flex' : 'none';
+  // Botão editar: respeita setting
+  $('btn-edit-toggle').style.display = settings.editEnabled ? '' : 'none';
+  // Botão apagar: só líder
+  const btnDel = $('btn-del-song');
+  if (btnDel) btnDel.style.display = role === 'S' ? '' : 'none';
+  // Tom: só líder vê o botão TOM na controls-bar
+  const btnTone = document.querySelector('.btn-ctrl.tone');
+  if (btnTone) btnTone.style.display = role === 'S' ? '' : 'none';
+
+  if (role === 'S') syncMusicians(currentText, currentNote);
 
   setView('cifra');
   hideMedley();
@@ -460,8 +435,12 @@ function isChordLine(line) {
   let chords = 0, words = 0;
   for (const tok of tokens) {
     const clean = tok.replace(/^[(]+|[),.:|/]+$/g, '');
-    if (!clean || clean.length < 2) continue; // ignora tokens de 1 char (E, A na letra)
-
+    if (!clean) continue;
+    // Token de 1 char: aceita se for nota musical (A-G), ignora resto
+    if (clean.length === 1) {
+      if (/^[A-G]$/.test(clean)) chords++;
+      continue;
+    }
     if (CHORD_TOKEN_RE.test(clean)) {
       chords++;
     } else if (/[a-záàâãéêíóôõúç]{3,}/i.test(clean) && !QUALIFIER_RE.test(clean)) {
@@ -530,6 +509,49 @@ function selectTone(target) {
 }
 
 function resetTone() { selectTone(baseNote); }
+
+function openEditOrigTone() {
+  // Abre o grid de tons para o usuário escolher o tom original
+  // Quando selecionar, chama setOriginalTone em vez de selectTone
+  const grid = toneGrid;
+  const isOpen = grid.style.display === 'flex';
+  if (isOpen) { grid.style.display = 'none'; return; }
+
+  // Reconstrói o grid com ação diferente
+  grid.innerHTML = '';
+  notes.forEach(n => {
+    const btn = document.createElement('button');
+    btn.className = 'btn-tone';
+    if (n === baseNote) btn.classList.add('active');
+    btn.textContent = n;
+    btn.onclick = () => {
+      grid.style.display = 'none';
+      setOriginalTone(n);
+      buildToneGrid(); // restaura comportamento normal do grid
+    };
+    grid.appendChild(btn);
+  });
+  grid.style.display = 'flex';
+}
+
+function setOriginalTone(newTone) {
+  const m = db.biblioteca.find(b => b.id === musicaAtivaId);
+  if (!m) return;
+  m.originalTone = newTone;
+  m.savedTone    = newTone;
+  baseNote       = newTone;
+  currentNote    = newTone;
+  originalText   = m.content;
+  currentText    = originalText;
+  salvarDB();
+  renderCifra(currentText);
+  $('curr-tone').textContent = newTone;
+  $('orig-tone').textContent = newTone;
+  $('btn-reset-tone').style.display = 'none';
+  updateToneActive();
+  showToast('Tom original: ' + newTone);
+  if (role === 'S') syncMusicians(currentText, newTone);
+}
 
 function transposeText(text, diff) {
   return text.replace(/\b([A-G][#b]?)/g, match => {
@@ -1344,16 +1366,30 @@ function esc(s)     { return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 
 // ── Hardware/browser back button ──
 window.addEventListener('popstate', () => {
-  history.pushState(null, '', location.href); // intercepta o próximo
-
-  if (isEditMode)    { cancelEdit();    return; }
-  if (musicaAtivaId) { backFromSong();  return; }  // cifra → pasta
-  if (pastaAtiva)    { renderFolders(); return; }  // pasta → pastas
-
-  // Na raiz (pastas/settings) → vai para tela de conexão
-  // Mas se já está na tela de setup, deixa o sistema sair normalmente
   const setupVisible = $('screen-setup').classList.contains('active');
-  if (!setupVisible) { navConnect(); }
+
+  if (isEditMode) {
+    history.pushState(null, '', location.href);
+    cancelEdit();
+    return;
+  }
+  if (musicaAtivaId) {
+    history.pushState(null, '', location.href);
+    backFromSong();
+    return;
+  }
+  if (pastaAtiva) {
+    history.pushState(null, '', location.href);
+    renderFolders();
+    return;
+  }
+  if (!setupVisible) {
+    // Raiz do app → vai para tela de conexão
+    // NÃO empurra novo estado: deixa o próximo back sair do app
+    navConnect();
+    return;
+  }
+  // Já na tela de setup → deixa o browser sair normalmente
 });
 history.pushState(null, '', location.href);
 

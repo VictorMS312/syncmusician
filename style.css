@@ -899,7 +899,7 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
 
 /* ══ SETTINGS PAGE (full view inside content-area) ══ */
 .settings-page {
-  padding: 8px 0 100px;
+  padding: 8px 0 calc(max(env(safe-area-inset-bottom), 16px) + 120px);
 }
 .spage-section {
   font-family: var(--font-mono); font-size: 11px; font-weight: 700;

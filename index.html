@@ -75,7 +75,7 @@
 
   <div id="controls-bar">
     <div class="ctrl-group">
-      <button class="btn-ctrl del"  onclick="excluirMusica()">✕ APAGAR</button>
+      <button class="btn-ctrl del" id="btn-del-song" onclick="excluirMusica()">✕ APAGAR</button>
       <button class="btn-ctrl edit" id="btn-edit-toggle" onclick="toggleEditMode()">✎ EDITAR</button>
     </div>
     <div class="ctrl-group">
@@ -89,7 +89,12 @@
   <div id="tone-bar">
     <div class="tone-info">
       TOM: <span class="tone-current" id="curr-tone">C</span>
-      <span style="color:var(--text-muted);font-size:10px;">(orig: <span id="orig-tone">C</span>)</span>
+      <span style="color:var(--text-muted);font-size:10px;"
+            onclick="openEditOrigTone()"
+            title="Toque para editar o tom original"
+            style="cursor:pointer;">
+        (orig: <span id="orig-tone">C</span> ✎)
+      </span>
     </div>
     <button class="btn-reset-tone" id="btn-reset-tone" onclick="resetTone()">ORIGINAL</button>
     <div id="medley-bubble" onclick="jumpToMedley()">
