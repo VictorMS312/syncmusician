@@ -373,6 +373,58 @@ app.get('/health', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────
+//  VOTAÇÃO DE TOM ORIGINAL
+//  Tabela Supabase: tone_votes
+//  SQL: CREATE TABLE tone_votes (
+//         url   text NOT NULL,
+//         tone  text NOT NULL,
+//         votes integer NOT NULL DEFAULT 1,
+//         PRIMARY KEY (url, tone)
+//       );
+// ─────────────────────────────────────────────────────
+
+// POST /tone-vote  body: { url, tone }
+app.post('/tone-vote', async (req, res) => {
+  const { url, tone } = req.body;
+  if (!url || !tone) return res.status(400).json({ error: 'url e tone obrigatórios' });
+  try {
+    // Tenta incrementar voto existente
+    const existing = await supa.get('/tone_votes', {
+      params: { url: `eq.${url}`, tone: `eq.${tone}`, select: 'votes', limit: 1 },
+    });
+    if (existing.data?.length > 0) {
+      await supa.patch('/tone_votes',
+        { votes: existing.data[0].votes + 1 },
+        { params: { url: `eq.${url}`, tone: `eq.${tone}` }, headers: { 'Prefer': 'return=minimal' } }
+      );
+    } else {
+      await supa.post('/tone_votes',
+        { url, tone, votes: 1 },
+        { headers: { 'Prefer': 'return=minimal' } }
+      );
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.response?.data || e.message }); }
+});
+
+// GET /tone-vote?url=...  — retorna o tom com mais votos
+app.get('/tone-vote', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url obrigatória' });
+  try {
+    const r = await supa.get('/tone_votes', {
+      params: { url: `eq.${url}`, select: 'tone,votes', order: 'votes.desc', limit: 1 },
+    });
+    if (r.data?.length > 0 && r.data[0].votes >= 2) {
+      // Só retorna como "comunitário" se tiver pelo menos 2 votos
+      res.json({ tone: r.data[0].tone, votes: r.data[0].votes });
+    } else {
+      res.json({ tone: null }); // sem consenso ainda
+    }
+  } catch (e) { res.status(500).json({ error: e.response?.data || e.message }); }
+});
+
+// ─────────────────────────────────────────────────────
 //  DESCOBERTA DE LÍDERES
 // ─────────────────────────────────────────────────────
 

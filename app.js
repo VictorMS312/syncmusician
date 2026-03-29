@@ -30,6 +30,13 @@ let leaderPollId = null;  // polling de líderes disponíveis
 let keepAliveId  = null;  // heartbeat para manter líder visível
 
 const notes = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+// Exibição com bemóis para notas pretas (contexto musical BR)
+const NOTE_DISPLAY = {
+  "C#":"C#/Db","D#":"D#/Eb","F#":"F#/Gb","G#":"G#/Ab","A#":"A#/Bb"
+};
+// Tom original: aceita bemóis e converte internamente
+const FLAT_TO_SHARP = {"Db":"C#","Eb":"D#","Fb":"E","Gb":"F#","Ab":"G#","Bb":"A#","Cb":"B"};
+function toSharp(n) { return FLAT_TO_SHARP[n] || n; }
 
 const $ = id => document.getElementById(id);
 const contentArea    = $('content-area');
@@ -61,15 +68,46 @@ window.onload = () => {
 // Detecta o tom da cifra
 // Prioridade: 1) linha "Tom: X" no texto, 2) campo harmônico
 function detectKey(text) {
-  // Extrai SOMENTE da linha "Tom: X" — não tenta adivinhar
+  // 1. Tenta extrair do texto "Tom: B" / "Tom: C#m" etc.
   const tomMatch = text.match(/\bTom\s*:\s*([A-G][#b]?(?:m(?:aj)?|dim|aug|sus)?)/i);
   if (tomMatch) {
-    const raw  = tomMatch[1];
+    const raw = tomMatch[1];
     const root = raw.replace(/m(?:aj)?|dim|aug|sus/g, '');
     const norm = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[root] || root;
     if (notes.includes(norm)) return norm;
   }
-  return 'C';
+
+  // 2. Campo harmônico
+  const lines     = text.split('\n');
+  const allChords = [];
+
+  lines.forEach((line, idx) => {
+    if (!isChordLine(line)) return;
+    const matches = line.match(/[A-G][#b]?(?:m(?:aj)?|dim|aug|sus)?/g) || [];
+    matches.forEach(c => {
+      const root = c.replace(/m(?:aj)?|dim|aug|sus/g, '');
+      const norm = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[root] || root;
+      if (!notes.includes(norm)) return;
+      allChords.push({ root: norm, idx });
+    });
+  });
+
+  if (allChords.length === 0) return 'C';
+
+  const counts = {};
+  allChords.forEach(c => { counts[c.root] = (counts[c.root] || 0) + 1; });
+
+  // Último acorde da cifra tende a ser a tônica
+  const lastLine = [...lines].reverse().find(l => isChordLine(l));
+  if (lastLine) {
+    const m = lastLine.trim().match(/^([A-G][#b]?)/);
+    if (m) {
+      const norm = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[m[1]] || m[1];
+      if (notes.includes(norm) && counts[norm]) return norm;
+    }
+  }
+
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
 }
 
 // Extrai a primeira URL válida de um texto (resolve "Veja como tocar X https://...")
@@ -259,6 +297,8 @@ async function navConnect() {
   peerIdGlobal = null;
   if (peer) { try { peer.destroy(); } catch {} peer = null; }
   connections = []; role = '';
+  // Esconde todos os FABs ao voltar para conexão
+  ['fab-add','fab-back','fab-save'].forEach(id => { const el=$(id); if(el) el.style.display='none'; });
   showScreen('screen-setup');
   if (leaderPollId) clearInterval(leaderPollId);
   pollLeaders();
@@ -349,18 +389,12 @@ function openSong(index) {
   updateToneActive();
   toneBar.style.display = 'flex';
 
-  // Barra de controles: líder sempre, músico se editEnabled
-  controlsBar.style.display = (role === 'S' || settings.editEnabled) ? 'flex' : 'none';
-  // Botão editar: respeita setting
-  $('btn-edit-toggle').style.display = settings.editEnabled ? '' : 'none';
-  // Botão apagar: só líder
-  const btnDel = $('btn-del-song');
-  if (btnDel) btnDel.style.display = role === 'S' ? '' : 'none';
-  // Tom: só líder vê o botão TOM na controls-bar
-  const btnTone = document.querySelector('.btn-ctrl.tone');
-  if (btnTone) btnTone.style.display = role === 'S' ? '' : 'none';
-
-  if (role === 'S') syncMusicians(currentText, currentNote);
+  if (role === 'S') {
+    controlsBar.style.display = 'flex';
+    // Mostra ou esconde botão de edição conforme configuração
+    $('btn-edit-toggle').style.display = settings.editEnabled ? '' : 'none';
+    syncMusicians(currentText, currentNote);
+  }
 
   setView('cifra');
   hideMedley();
@@ -435,12 +469,8 @@ function isChordLine(line) {
   let chords = 0, words = 0;
   for (const tok of tokens) {
     const clean = tok.replace(/^[(]+|[),.:|/]+$/g, '');
-    if (!clean) continue;
-    // Token de 1 char: aceita se for nota musical (A-G), ignora resto
-    if (clean.length === 1) {
-      if (/^[A-G]$/.test(clean)) chords++;
-      continue;
-    }
+    if (!clean || clean.length < 2) continue; // ignora tokens de 1 char (E, A na letra)
+
     if (CHORD_TOKEN_RE.test(clean)) {
       chords++;
     } else if (/[a-záàâãéêíóôõúç]{3,}/i.test(clean) && !QUALIFIER_RE.test(clean)) {
@@ -485,14 +515,18 @@ function buildToneGrid() {
   toneGrid.innerHTML = '';
   notes.forEach(n => {
     const btn = document.createElement('button');
-    btn.className = 'btn-tone'; btn.textContent = n;
+    btn.className = 'btn-tone';
+    btn.textContent = NOTE_DISPLAY[n] || n;
+    btn.dataset.note = n; // valor interno sempre em sustenido
     btn.onclick = () => { selectTone(n); toggleToneGrid(); };
     toneGrid.appendChild(btn);
   });
 }
 
 function updateToneActive() {
-  toneGrid.querySelectorAll('.btn-tone').forEach(b => b.classList.toggle('active', b.textContent === currentNote));
+  toneGrid.querySelectorAll('.btn-tone').forEach(b =>
+    b.classList.toggle('active', (b.dataset.note || b.textContent) === currentNote)
+  );
 }
 
 function selectTone(target) {
@@ -510,47 +544,72 @@ function selectTone(target) {
 
 function resetTone() { selectTone(baseNote); }
 
-function openEditOrigTone() {
-  // Abre o grid de tons para o usuário escolher o tom original
-  // Quando selecionar, chama setOriginalTone em vez de selectTone
-  const grid = toneGrid;
-  const isOpen = grid.style.display === 'flex';
-  if (isOpen) { grid.style.display = 'none'; return; }
-
-  // Reconstrói o grid com ação diferente
-  grid.innerHTML = '';
-  notes.forEach(n => {
-    const btn = document.createElement('button');
-    btn.className = 'btn-tone';
-    if (n === baseNote) btn.classList.add('active');
-    btn.textContent = n;
-    btn.onclick = () => {
-      grid.style.display = 'none';
-      setOriginalTone(n);
-      buildToneGrid(); // restaura comportamento normal do grid
-    };
-    grid.appendChild(btn);
-  });
-  grid.style.display = 'flex';
-}
-
+// ── Tom original: correção manual + votação comunitária ──
 function setOriginalTone(newTone) {
   const m = db.biblioteca.find(b => b.id === musicaAtivaId);
   if (!m) return;
   m.originalTone = newTone;
-  m.savedTone    = newTone;
   baseNote       = newTone;
-  currentNote    = newTone;
+  // Mantém savedTone — recalcula o texto mantendo a transposição atual
   originalText   = m.content;
-  currentText    = originalText;
+  const savedDiff = notes.indexOf(currentNote) - notes.indexOf(newTone);
+  currentText    = savedDiff !== 0 ? transposeText(originalText, savedDiff) : originalText;
   salvarDB();
   renderCifra(currentText);
-  $('curr-tone').textContent = newTone;
   $('orig-tone').textContent = newTone;
-  $('btn-reset-tone').style.display = 'none';
-  updateToneActive();
-  showToast('Tom original: ' + newTone);
-  if (role === 'S') syncMusicians(currentText, newTone);
+  $('btn-reset-tone').style.display = currentNote !== newTone ? 'block' : 'none';
+  showToast('Tom original corrigido: ' + newTone);
+  if (m.url) votarTomOriginal(m.url, newTone);
+}
+
+async function votarTomOriginal(url, tone) {
+  try {
+    await fetch(`${API}/tone-vote`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, tone }),
+    });
+  } catch {}
+}
+
+async function buscarTomComunitario(url) {
+  try {
+    const res = await fetch(`${API}/tone-vote?url=${encodeURIComponent(url)}`);
+    if (!res.ok) return null;
+    const d = await res.json();
+    return d.tone || null;
+  } catch { return null; }
+}
+
+function openEditOrigTone() {
+  const grid = toneGrid;
+  const isEditingOrig = grid.dataset.mode === 'original';
+
+  if (grid.style.display !== 'none' && isEditingOrig) {
+    grid.style.display = 'none';
+    grid.dataset.mode  = '';
+    buildToneGrid();
+    return;
+  }
+
+  grid.dataset.mode = 'original';
+  grid.innerHTML = '';
+  notes.forEach(n => {
+    const btn = document.createElement('button');
+    btn.className = 'btn-tone';
+    btn.dataset.note = n;
+    btn.textContent  = NOTE_DISPLAY[n] || n;
+    if (n === baseNote) btn.classList.add('active');
+    btn.onclick = () => {
+      grid.style.display = 'none';
+      grid.dataset.mode  = '';
+      setOriginalTone(n);
+      buildToneGrid();
+    };
+    grid.appendChild(btn);
+  });
+  grid.style.display = 'grid';
+  showToast('Escolha o tom ORIGINAL da música');
 }
 
 function transposeText(text, diff) {
@@ -922,13 +981,16 @@ async function importarDaBusca(url, title, btn) {
     const data = await res.json();
     if (!data.cifra) throw new Error('sem conteúdo');
 
-    const plain        = htmlParaTexto(data.cifra);
-    const originalTone = detectKey(plain);
-    const id           = Date.now().toString();
+    const plain = htmlParaTexto(data.cifra);
+    // Prioridade: tom comunitário > tom detectado no texto > 'C'
+    const detectedTone    = detectKey(plain);
+    const communityTone   = await buscarTomComunitario(url);
+    const originalTone    = communityTone || detectedTone;
+    const id              = Date.now().toString();
     db.biblioteca.push({ id, url, title: data.titulo || title, content: plain, originalTone });
     db.pastas[pastaAtiva].push(id);
     salvarDB(); closeLibrary(); openFolder(pastaAtiva);
-    showToast('Música importada!');
+    showToast('Música importada!' + (communityTone ? ' (tom validado ✓)' : ''));
   } catch {
     btn.disabled = false; btn.textContent = 'ADD';
     showToast('Erro ao importar. Tente o link direto.');
@@ -969,14 +1031,16 @@ async function importLink() {
     const res  = await fetch(`https://syncmusician.onrender.com/get-cifra?url=${encodeURIComponent(url)}`);
     const data = await res.json();
     if (!data.cifra) throw new Error('sem conteúdo');
-    const plain        = htmlParaTexto(data.cifra);
-    const originalTone = detectKey(plain);
-    const id           = Date.now().toString();
+    const plain           = htmlParaTexto(data.cifra);
+    const detectedTone    = detectKey(plain);
+    const communityTone   = await buscarTomComunitario(url);
+    const originalTone    = communityTone || detectedTone;
+    const id              = Date.now().toString();
     db.biblioteca.push({ id, url, title: data.titulo || 'Sem título', content: plain, originalTone });
     db.pastas[pastaAtiva].push(id);
     salvarDB(); closeLibrary(); openFolder(pastaAtiva);
     $('url-input').value = '';
-    showToast('Música importada!');
+    showToast('Música importada!' + (communityTone ? ' (tom validado ✓)' : ''));
   } catch {
     showToast('Link não suportado — tente a aba Manual.');
   }
@@ -1366,30 +1430,16 @@ function esc(s)     { return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 
 // ── Hardware/browser back button ──
 window.addEventListener('popstate', () => {
-  const setupVisible = $('screen-setup').classList.contains('active');
+  history.pushState(null, '', location.href); // intercepta o próximo
 
-  if (isEditMode) {
-    history.pushState(null, '', location.href);
-    cancelEdit();
-    return;
-  }
-  if (musicaAtivaId) {
-    history.pushState(null, '', location.href);
-    backFromSong();
-    return;
-  }
-  if (pastaAtiva) {
-    history.pushState(null, '', location.href);
-    renderFolders();
-    return;
-  }
-  if (!setupVisible) {
-    // Raiz do app → vai para tela de conexão
-    // NÃO empurra novo estado: deixa o próximo back sair do app
-    navConnect();
-    return;
-  }
-  // Já na tela de setup → deixa o browser sair normalmente
+  if (isEditMode)    { cancelEdit();    return; }
+  if (musicaAtivaId) { backFromSong();  return; }  // cifra → pasta
+  if (pastaAtiva)    { renderFolders(); return; }  // pasta → pastas
+
+  // Na raiz (pastas/settings) → vai para tela de conexão
+  // Mas se já está na tela de setup, deixa o sistema sair normalmente
+  const setupVisible = $('screen-setup').classList.contains('active');
+  if (!setupVisible) { navConnect(); }
 });
 history.pushState(null, '', location.href);
 
