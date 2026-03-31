@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <script src="https://unpkg.com/html5-qrcode"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <!-- Phosphor Icons -->
 <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css"
       onerror="document.querySelectorAll('.icon-emoji').forEach(e=>e.style.display='inline');document.querySelectorAll('.icon-ph').forEach(e=>e.style.display='none')">
@@ -89,9 +90,8 @@
   <div id="tone-bar">
     <div class="tone-info">
       TOM: <span class="tone-current" id="curr-tone">C</span>
-      <span class="orig-tone-wrap" onclick="openEditOrigTone()" title="Toque para corrigir o tom original">
-        orig: <span id="orig-tone">C</span> <span class="orig-edit-icon">✎</span>
-      </span>
+      <span id="orig-tone" style="display:none">C</span>
+      <button class="btn-wrong-tone" onclick="openFixToneModal()">Este tom está errado?</button>
     </div>
     <button class="btn-reset-tone" id="btn-reset-tone" onclick="resetTone()">ORIGINAL</button>
     <div id="medley-bubble" onclick="jumpToMedley()">
@@ -149,6 +149,28 @@
 </nav>
 
 
+</div>
+
+<!-- ══ FIX TONE MODAL ══ -->
+<div id="modal-fix-tone" class="modal-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title">Corrigir Tom Original</div>
+      <button class="modal-close" onclick="closeFixToneModal()">✕</button>
+    </div>
+    <div class="fix-tone-body">
+      <div class="fix-tone-message">
+        <div class="fix-tone-msg-icon">🎵</div>
+        <p>Nossos desenvolvedores trabalham constantemente para entregar a melhor experiência, mas às vezes erros podem acontecer. Escolha o tom correto abaixo — ele será salvo automaticamente.</p>
+      </div>
+      <div class="fix-tone-current-row">
+        Tom atual: <span id="fix-tone-current-display" class="fix-tone-current-value">C</span>
+      </div>
+      <div class="fix-tone-label">Qual é o tom correto?</div>
+      <div class="fix-tone-grid" id="fix-tone-grid"></div>
+    </div>
+  </div>
 </div>
 
 <!-- ══ QR MODAL (só usado no setup) ══ -->
