@@ -414,7 +414,7 @@ function openSong(index) {
   isScrolling = false;
   contentArea.scrollTop = 0; scrollPos = 0;
 
-  if (role === 'S' && settings.medleyEnabled) startMedleyWatcher();
+  if (role === 'S' && settings.medleyEnabled && isPro()) startMedleyWatcher();
 }
 
 function fabBackHandler() {
@@ -678,7 +678,10 @@ function updateSpeedLbl() { $('speed-lbl').textContent = $('scroll-speed').value
 // ════════════════════════════════════
 //  EDIT
 // ════════════════════════════════════
-function toggleEditMode() { isEditMode ? cancelEdit() : enterEditMode(); }
+function toggleEditMode() {
+  if (!isPro()) { showToast('✦ Recurso exclusivo Pro'); return; }
+  isEditMode ? cancelEdit() : enterEditMode();
+}
 function enterEditMode() {
   isEditMode = true;
   editTextarea.value           = currentText;
@@ -1248,25 +1251,35 @@ function renderSettingsPage() {
       <div class="spage-section">Funcionalidades</div>
       <div class="spage-row">
         <div>
-          <div class="spage-label">Sugestão de Medley</div>
+          <div class="spage-label">Sugestão de Medley ${!isPro() ? '<span class="feature-pro-tag">PRO</span>' : ''}</div>
           <div class="spage-sub">Sugere a próxima música compatível no tom</div>
         </div>
+        ${isPro() ? `
         <label class="toggle">
           <input type="checkbox" id="sp-medley" ${settings.medleyEnabled ? 'checked' : ''}
                  onchange="toggleSetting('medleyEnabled', this)">
           <span class="toggle-slider"></span>
-        </label>
+        </label>` : `
+        <label class="toggle toggle-locked" title="Recurso Pro">
+          <input type="checkbox" disabled>
+          <span class="toggle-slider"></span>
+        </label>`}
       </div>
       <div class="spage-row">
         <div>
-          <div class="spage-label">Editor de cifras</div>
+          <div class="spage-label">Editor de cifras ${!isPro() ? '<span class="feature-pro-tag">PRO</span>' : ''}</div>
           <div class="spage-sub">Permite editar o texto da cifra manualmente</div>
         </div>
+        ${isPro() ? `
         <label class="toggle">
           <input type="checkbox" id="sp-edit" ${settings.editEnabled ? 'checked' : ''}
                  onchange="toggleSetting('editEnabled', this)">
           <span class="toggle-slider"></span>
-        </label>
+        </label>` : `
+        <label class="toggle toggle-locked" title="Recurso Pro">
+          <input type="checkbox" disabled>
+          <span class="toggle-slider"></span>
+        </label>`}
       </div>
 
     </div>

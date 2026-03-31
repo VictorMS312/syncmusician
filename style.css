@@ -1043,4 +1043,14 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
   font-size: 10px; font-weight: 700; cursor: pointer; white-space: nowrap; flex-shrink: 0;
   letter-spacing: 0.5px;
 }
-.btn-activate-code:active { opacity: 0.8; }
+.feature-pro-tag {
+  display: inline-block;
+  font-size: 8px; font-family: var(--font-mono); font-weight: 700;
+  letter-spacing: 1px; text-transform: uppercase;
+  background: rgba(245,158,11,0.15); color: var(--accent);
+  border: 1px solid rgba(245,158,11,0.35);
+  border-radius: 5px; padding: 2px 6px;
+  vertical-align: middle; margin-left: 6px;
+  position: relative; top: -1px;
+}
+.toggle-locked { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
