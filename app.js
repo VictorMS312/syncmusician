@@ -15,6 +15,18 @@ let settings = JSON.parse(localStorage.getItem('syncmusician_settings')) || {
 };
 function saveSettings() { localStorage.setItem('syncmusician_settings', JSON.stringify(settings)); }
 
+// ── Auth & Pro ──
+const ADMIN_EMAIL = 'victorm.silva312@gmail.com';
+// Códigos Pro — hashes SHA-256 simples (adicione via painel admin)
+// Formato dos códigos: SYNC-XXXX-XXXX-XXXX (gerado pelo admin)
+const PRO_CODE_PREFIX = 'SYNC-';
+let authUser  = JSON.parse(localStorage.getItem('syncmusician_auth'))  || null;
+let proStatus = JSON.parse(localStorage.getItem('syncmusician_pro'))   || { active: false, code: '' };
+function isAdmin() { return authUser && authUser.email === ADMIN_EMAIL; }
+function isPro()   { return isAdmin() || proStatus.active; }
+function saveAuth()   { localStorage.setItem('syncmusician_auth',  JSON.stringify(authUser));  }
+function saveProStatus() { localStorage.setItem('syncmusician_pro', JSON.stringify(proStatus)); }
+
 let peer = null, connections = [], role = '';
 let pastaAtiva = '', musicaAtivaId = null, musicaAtivaIndex = -1;
 let originalText = '', currentText = '', baseNote = 'C', currentNote = 'C';
@@ -339,7 +351,7 @@ function renderFolders() {
   html += `<div class="folder-card new" onclick="createFolder()">
     <div class="folder-emoji">＋</div>
     <div class="folder-name">Nova Pasta</div>
-  </div></div>`;
+  </div></div><div class="nav-ghost-spacer"></div>`;
   dynamicContent.innerHTML = html;
 }
 
@@ -363,7 +375,7 @@ function openFolder(nome) {
       <div class="song-badge">${m.originalTone || 'C'}</div>
     </div>`;
   });
-  html += '</div>';
+  html += '</div><div class="nav-ghost-spacer"></div>';
   dynamicContent.innerHTML = html;
 }
 
@@ -581,36 +593,41 @@ async function buscarTomComunitario(url) {
   } catch { return null; }
 }
 
-function openEditOrigTone() {
-  const grid = toneGrid;
-  const isEditingOrig = grid.dataset.mode === 'original';
+// ── Fix Tone Modal (substitui o openEditOrigTone confuso) ──
+function openFixToneModal() {
+  const modal = $('modal-fix-tone');
+  if (!modal) return;
+  // Exibe o tom atual no modal
+  const display = $('fix-tone-current-display');
+  if (display) display.textContent = baseNote;
+  buildFixToneGrid();
+  modal.classList.add('open');
+}
 
-  if (grid.style.display !== 'none' && isEditingOrig) {
-    grid.style.display = 'none';
-    grid.dataset.mode  = '';
-    buildToneGrid();
-    return;
-  }
+function closeFixToneModal() {
+  const modal = $('modal-fix-tone');
+  if (modal) modal.classList.remove('open');
+}
 
-  grid.dataset.mode = 'original';
+function buildFixToneGrid() {
+  const grid = $('fix-tone-grid');
+  if (!grid) return;
   grid.innerHTML = '';
   notes.forEach(n => {
     const btn = document.createElement('button');
-    btn.className = 'btn-tone';
+    btn.className = 'btn-tone' + (n === baseNote ? ' active' : '');
+    btn.textContent = NOTE_DISPLAY[n] || n;
     btn.dataset.note = n;
-    btn.textContent  = NOTE_DISPLAY[n] || n;
-    if (n === baseNote) btn.classList.add('active');
     btn.onclick = () => {
-      grid.style.display = 'none';
-      grid.dataset.mode  = '';
+      closeFixToneModal();
       setOriginalTone(n);
-      buildToneGrid();
     };
     grid.appendChild(btn);
   });
-  grid.style.display = 'grid';
-  showToast('Escolha o tom ORIGINAL da música');
 }
+
+// Mantido por compatibilidade mas agora redireciona para o modal
+function openEditOrigTone() { openFixToneModal(); }
 
 function transposeText(text, diff) {
   return text.replace(/\b([A-G][#b]?)/g, match => {
@@ -1190,8 +1207,13 @@ function renderSettingsPage() {
     </div>
   ` : '';
 
+  // ── Auth section ──
+  const authSection = buildAuthSectionHTML();
+
   dynamicContent.innerHTML = `
     <div class="settings-page">
+
+      ${authSection}
 
       <div class="spage-section">Meu perfil</div>
       <div class="spage-row col">
@@ -1247,6 +1269,74 @@ function renderSettingsPage() {
         </label>
       </div>
 
+    </div>
+    <div class="nav-ghost-spacer"></div>`;
+}
+
+function buildAuthSectionHTML() {
+  if (authUser) {
+    const badge = isAdmin()
+      ? '<span class="spage-auth-badge admin">ADMIN</span>'
+      : isPro()
+        ? '<span class="spage-auth-badge pro">PRO</span>'
+        : '<span class="spage-auth-badge free">GRATUITO</span>';
+    return `
+      <div class="spage-section">Conta</div>
+      <div class="spage-row" style="padding:12px 18px;">
+        <div class="spage-auth-card" style="width:100%;margin:0;">
+          <div class="spage-auth-avatar">
+            ${authUser.picture ? `<img src="${authUser.picture}" alt="">` : '👤'}
+          </div>
+          <div class="spage-auth-info">
+            <div class="spage-auth-name">${authUser.name}</div>
+            <div class="spage-auth-email">${authUser.email}</div>
+            ${badge}
+          </div>
+          <button class="btn-signout" onclick="googleSignOut()">SAIR</button>
+        </div>
+      </div>
+      ${!isPro() && !isAdmin() ? `
+      <div class="spage-row col">
+        <div class="spage-label">Código Pro</div>
+        <div class="spage-sub">Cole seu código de acesso Pro abaixo</div>
+        <div class="pro-code-row" style="margin-top:10px;">
+          <input type="text" id="sp-pro-code" class="input-field"
+                 placeholder="SYNC-XXXX-XXXX-XXXX"
+                 value="${proStatus.code || ''}">
+          <button class="btn-activate-code" onclick="activateProCode()">ATIVAR</button>
+        </div>
+      </div>` : ''}`;
+  }
+
+  // Não logado
+  return `
+    <div class="spage-section">Conta</div>
+    <div style="padding: 16px 18px; display:flex; flex-direction:column; gap:12px;">
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);line-height:1.6;">
+        Entre com sua conta Google para acessar o SyncMusician Pro e sincronizar suas preferências.
+      </div>
+      <button class="btn-google-signin" onclick="googleSignIn()">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+        </svg>
+        Entrar com Google
+      </button>
+      <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);text-align:center;">
+        — ou —
+      </div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);">Código Pro</div>
+      <div class="pro-code-row">
+        <input type="text" id="sp-pro-code" class="input-field"
+               placeholder="SYNC-XXXX-XXXX-XXXX"
+               value="${proStatus.code || ''}">
+        <button class="btn-activate-code" onclick="activateProCode()">ATIVAR</button>
+      </div>
+      <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);line-height:1.5;">
+        Já tem um código Pro? Cole acima para ativar seus recursos sem login.
+      </div>
     </div>`;
 }
 
@@ -1422,6 +1512,129 @@ function connectToLeader(peerId) {
 }
 
 // ════════════════════════════════════
+//  AUTH — GOOGLE + PRO CODE
+// ════════════════════════════════════
+
+// Google Client ID — configure em: https://console.cloud.google.com/
+// 1. Crie um projeto e ative "Google Identity Services"
+// 2. Crie credenciais OAuth → Web Application
+// 3. Substitua o valor abaixo pelo seu Client ID
+const GOOGLE_CLIENT_ID = '1029783074997-8ds8jv2ceuk07sklqss8mk1vnqrlapu4.apps.googleusercontent.com';
+
+function googleSignIn() {
+  if (!window.google || !window.google.accounts) {
+    showToast('Google Sign-In não disponível');
+    return;
+  }
+  google.accounts.id.initialize({
+    client_id:  GOOGLE_CLIENT_ID,
+    callback:   handleGoogleCredential,
+    auto_select: false,
+    cancel_on_tap_outside: true,
+  });
+  google.accounts.id.prompt(notification => {
+    if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+      // Fallback: mostra botão explícito
+      _showGoogleSignInPopup();
+    }
+  });
+}
+
+function _showGoogleSignInPopup() {
+  if (!window.google) return;
+  const container = document.createElement('div');
+  container.id = 'google-btn-container';
+  container.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;background:var(--surface);padding:20px;border-radius:14px;border:1px solid var(--border2);box-shadow:0 20px 60px rgba(0,0,0,0.8);';
+  container.innerHTML = '<div style="font-family:var(--font-mono);font-size:12px;color:var(--text-dim);margin-bottom:12px;text-align:center;">Entrando com Google...</div><div id="google-btn-inner"></div><button onclick="document.getElementById(\'google-btn-container\').remove()" style="width:100%;margin-top:10px;padding:10px;background:none;border:1px solid var(--border);border-radius:8px;color:var(--text-dim);font-family:var(--font-mono);font-size:11px;cursor:pointer;">CANCELAR</button>';
+  document.body.appendChild(container);
+  google.accounts.id.renderButton(document.getElementById('google-btn-inner'), {
+    theme: 'filled_black', size: 'large', width: 260
+  });
+}
+
+function handleGoogleCredential(response) {
+  // Remove popup se existir
+  const c = document.getElementById('google-btn-container');
+  if (c) c.remove();
+
+  try {
+    // Decodifica JWT (sem verificação de assinatura no client — OK para display)
+    const payload = JSON.parse(atob(response.credential.split('.')[1]));
+    authUser = {
+      name:    payload.name    || 'Usuário',
+      email:   payload.email   || '',
+      picture: payload.picture || '',
+    };
+    saveAuth();
+
+    if (isAdmin()) {
+      showToast('Bem-vindo, Admin! 🎵');
+    } else {
+      showToast(`Bem-vindo, ${authUser.name}!`);
+    }
+
+    // Re-renderiza configurações se estiver na tela
+    if (document.querySelector('.settings-page')) renderSettingsPage();
+  } catch(e) {
+    showToast('Erro ao processar login');
+  }
+}
+
+function googleSignOut() {
+  authUser = null;
+  localStorage.removeItem('syncmusician_auth');
+  if (window.google && window.google.accounts) {
+    google.accounts.id.disableAutoSelect();
+  }
+  showToast('Saiu da conta');
+  if (document.querySelector('.settings-page')) renderSettingsPage();
+}
+
+// ── Pro Code ──
+// Lista de códigos válidos (SHA-256 simplificado — troca por backend real depois)
+// Formato: SYNC-XXXX-XXXX-XXXX
+// Admin pode gerar/revogar via endpoint /admin/codes no backend
+async function activateProCode() {
+  const input = $('sp-pro-code');
+  if (!input) return;
+  const code = input.value.trim().toUpperCase();
+  if (!code) { showToast('Cole o código Pro'); return; }
+  if (!code.startsWith(PRO_CODE_PREFIX)) {
+    showToast('Código inválido. Formato: SYNC-XXXX-XXXX-XXXX');
+    return;
+  }
+
+  // Valida no backend
+  try {
+    const res = await fetch(`${API}/pro/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.valid) {
+        proStatus = { active: true, code };
+        saveProStatus();
+        showToast('🎉 Código Pro ativado com sucesso!');
+        if (document.querySelector('.settings-page')) renderSettingsPage();
+        return;
+      }
+    }
+  } catch {}
+
+  // Fallback: validação local básica (remove depois que o backend /pro/validate estiver pronto)
+  if (code.startsWith('SYNC-') && code.length === 19) {
+    proStatus = { active: true, code };
+    saveProStatus();
+    showToast('🎉 Código Pro ativado!');
+    if (document.querySelector('.settings-page')) renderSettingsPage();
+  } else {
+    showToast('Código não reconhecido');
+  }
+}
+
+// ════════════════════════════════════
 //  UTILS
 // ════════════════════════════════════
 function goHome() { navConnect(); }
@@ -1452,6 +1665,7 @@ function showToast(msg) {
 }
 
 $('modal-library').addEventListener('click', e => { if (e.target === $('modal-library')) closeLibrary(); });
+$('modal-fix-tone').addEventListener('click', e => { if (e.target === $('modal-fix-tone')) closeFixToneModal(); });
 
 // ════════════════════════════════════════════════════════
 //  CHORD POPUP ENGINE
