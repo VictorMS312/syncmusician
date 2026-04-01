@@ -42,6 +42,45 @@ let leaderPollId = null;  // polling de líderes disponíveis
 let keepAliveId  = null;  // heartbeat para manter líder visível
 
 const notes = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+
+// ── Gêneros musicais ──
+const GENRES = [
+  { id: 'gospel',    label: 'Gospel',     emoji: '✝️'  },
+  { id: 'crista',    label: 'Cristã',     emoji: '🕊️'  },
+  { id: 'sertanejo', label: 'Sertanejo',  emoji: '🤠'  },
+  { id: 'mpb',       label: 'MPB',        emoji: '🎶'  },
+  { id: 'pop',       label: 'Pop',        emoji: '🎤'  },
+  { id: 'rock',      label: 'Rock',       emoji: '🎸'  },
+  { id: 'pagode',    label: 'Pagode',     emoji: '🥁'  },
+  { id: 'axe',       label: 'Axé',        emoji: '🌴'  },
+  { id: 'forro',     label: 'Forró',      emoji: '🪗'  },
+  { id: 'classica',  label: 'Clássica',   emoji: '🎻'  },
+  { id: 'infantil',  label: 'Infantil',   emoji: '🧸'  },
+  { id: 'outros',    label: 'Outros',     emoji: '🎵'  },
+];
+
+// Mapeamento de strings do Cifra Club → nosso id
+const GENRE_MAP = {
+  'gospel': 'gospel', 'cristã': 'crista', 'crista': 'crista',
+  'sertanejo': 'sertanejo', 'mpb': 'mpb', 'pop': 'pop',
+  'rock': 'rock', 'pagode': 'pagode', 'axé': 'axe', 'axe': 'axe',
+  'forró': 'forro', 'forro': 'forro', 'clássica': 'classica',
+  'infantil': 'infantil', 'religioso': 'crista', 'católica': 'crista',
+};
+
+function normalizeGenre(raw) {
+  if (!raw) return null;
+  const key = raw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  for (const [k, v] of Object.entries(GENRE_MAP)) {
+    const kn = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (key.includes(kn)) return v;
+  }
+  return null;
+}
+
+function getGenre(genreId) {
+  return GENRES.find(g => g.id === genreId) || null;
+}
 // Exibição com bemóis para notas pretas (contexto musical BR)
 const NOTE_DISPLAY = {
   "C#":"C#/Db","D#":"D#/Eb","F#":"F#/Gb","G#":"G#/Ab","A#":"A#/Bb"
@@ -355,28 +394,143 @@ function renderFolders() {
   dynamicContent.innerHTML = html;
 }
 
+let genreFilter = null; // filtro ativo na pasta
+
 function openFolder(nome) {
   pastaAtiva = nome;
-  medleyHistory = []; // reseta histórico ao mudar de pasta
+  genreFilter = null;
+  medleyHistory = [];
   showDynamic(); hideAllPanels(); hideMedley(); stopMedleyWatcher();
   setView('songs');
-  const songs = db.pastas[nome].map(id => db.biblioteca.find(b => b.id === id)).filter(Boolean);
-  let html = `<div class="view-header"><div class="view-title">${nome}</div></div><div class="songs-list">`;
-  if (!songs.length) {
+  renderSongsList();
+}
+
+function renderSongsList() {
+  const songs = db.pastas[pastaAtiva]
+    .map(id => db.biblioteca.find(b => b.id === id))
+    .filter(Boolean);
+
+  // Coleta gêneros presentes nesta pasta
+  const presentGenres = [...new Set(songs.map(m => m.genre).filter(Boolean))];
+
+  // Barra de filtro por gênero
+  let filterBar = '';
+  if (presentGenres.length > 0) {
+    filterBar = `<div class="genre-filter-bar" id="genre-filter-bar">
+      <button class="genre-filter-chip ${!genreFilter ? 'active' : ''}" onclick="setGenreFilter(null)">Todas</button>`;
+    presentGenres.forEach(gid => {
+      const g = getGenre(gid);
+      if (!g) return;
+      filterBar += `<button class="genre-filter-chip ${genreFilter === gid ? 'active' : ''}"
+        onclick="setGenreFilter('${gid}')">${g.emoji} ${g.label}</button>`;
+    });
+    filterBar += `</div>`;
+  }
+
+  // Filtra músicas
+  const filtered = genreFilter
+    ? songs.filter(m => m.genre === genreFilter)
+    : songs;
+
+  // Barra de busca local
+  const searchBar = `
+    <div class="local-search-wrap">
+      <input type="text" id="local-search-input" class="input-field local-search-input"
+        placeholder="🔍  Buscar nas músicas..."
+        autocomplete="off" spellcheck="false"
+        oninput="filterLocalSongs(this.value)">
+    </div>`;
+
+  let html = `<div class="view-header"><div class="view-title">${pastaAtiva}</div></div>
+    ${searchBar}
+    ${filterBar}
+    <div class="songs-list" id="songs-list-inner">`;
+
+  if (!filtered.length) {
     html += `<div style="text-align:center;padding:44px;color:var(--text-dim);font-family:var(--font-mono);font-size:12px;">
       Nenhuma música ainda.<br>Toque + para adicionar.</div>`;
   }
-  songs.forEach((m, i) => {
-    html += `<div class="song-card" onclick="openSong(${i})">
-      <div>
+
+  filtered.forEach((m) => {
+    const realIndex = db.pastas[pastaAtiva].indexOf(m.id);
+    const g = m.genre ? getGenre(m.genre) : null;
+    const genreChip = g
+      ? `<span class="song-genre-chip">${g.emoji} ${g.label}</span>`
+      : (isAdmin() ? `<span class="song-genre-chip chip-empty" onclick="event.stopPropagation();openEditGenre('${m.id}')">+ gênero</span>` : '');
+
+    html += `<div class="song-card" onclick="openSong(${realIndex})">
+      <div style="flex:1;min-width:0;">
         <div class="song-title">${m.title}</div>
-        <div class="song-meta">Tom: ${m.originalTone || 'C'}</div>
+        <div class="song-meta-row">
+          <span class="song-meta">Tom: ${m.originalTone || 'C'}</span>
+          ${genreChip}
+        </div>
       </div>
-      <div class="song-badge">${m.originalTone || 'C'}</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+        ${isAdmin() ? `<button class="song-genre-edit-btn" onclick="event.stopPropagation();openEditGenre('${m.id}')" title="Editar gênero">✎</button>` : ''}
+        <div class="song-badge">${m.originalTone || 'C'}</div>
+      </div>
     </div>`;
   });
+
   html += '</div><div class="nav-ghost-spacer"></div>';
   dynamicContent.innerHTML = html;
+}
+
+function setGenreFilter(gid) {
+  genreFilter = gid;
+  renderSongsList();
+}
+
+function filterLocalSongs(query) {
+  const q = query.trim().toLowerCase();
+  const list = $('songs-list-inner');
+  if (!list) return;
+  list.querySelectorAll('.song-card').forEach(card => {
+    const title = card.querySelector('.song-title')?.textContent?.toLowerCase() || '';
+    card.style.display = (!q || title.includes(q)) ? '' : 'none';
+  });
+}
+
+// ── Admin: editar gênero de uma música ──
+function openEditGenre(mId) {
+  if (!isAdmin()) return;
+  const m = db.biblioteca.find(b => b.id === mId);
+  if (!m) return;
+
+  // Remove menu anterior se existir
+  closeContextMenu();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'folder-ctx-backdrop';
+  overlay.onclick = closeContextMenu;
+
+  const menu = document.createElement('div');
+  menu.className = 'folder-ctx';
+  menu.id = 'folder-ctx-menu';
+  menu.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);min-width:220px;';
+  menu.innerHTML = `
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);letter-spacing:1.5px;text-transform:uppercase;padding:8px 14px 4px;">Gênero — ${m.title.slice(0,20)}</div>
+    ${GENRES.map(g => `
+      <div class="folder-ctx-item ${m.genre === g.id ? 'genre-active' : ''}"
+           onclick="setMusicGenre('${mId}','${g.id}')">
+        ${g.emoji} ${g.label} ${m.genre === g.id ? '✓' : ''}
+      </div>`).join('')}
+    <div class="folder-ctx-item danger" onclick="setMusicGenre('${mId}', null)">✕ Remover gênero</div>`;
+
+  document.body.appendChild(overlay);
+  document.body.appendChild(menu);
+}
+
+function setMusicGenre(mId, genreId) {
+  closeContextMenu();
+  const m = db.biblioteca.find(b => b.id === mId);
+  if (!m) return;
+  m.genre = genreId;
+  salvarDB();
+  renderSongsList();
+  const g = genreId ? getGenre(genreId) : null;
+  showToast(g ? `Gênero: ${g.emoji} ${g.label}` : 'Gênero removido');
 }
 
 function openSong(index) {
@@ -424,7 +578,9 @@ function fabBackHandler() {
 
 function backFromSong() {
   hideAllPanels(); hideMedley(); stopScroll(); stopMedleyWatcher();
-  openFolder(pastaAtiva);
+  showDynamic();
+  setView('songs');
+  renderSongsList();
 }
 
 function showCifraView() {
@@ -929,6 +1085,48 @@ function switchLibTab(btn) {
 // ── Busca ──
 let searchCurrentPage = 1;
 
+function renderLocalSearchResults(query, area) {
+  const q = query.toLowerCase().trim();
+  if (!q) { return; }
+
+  // Filtra biblioteca local
+  const matches = db.biblioteca.filter(m => {
+    const t = m.title.toLowerCase();
+    // Prefixo ou contains
+    return t.startsWith(q) || t.includes(q);
+  }).slice(0, 8); // máx 8 resultados locais
+
+  if (!matches.length) return;
+
+  const section = document.createElement('div');
+  section.id = 'local-results-section';
+  section.innerHTML = `<div class="lib-section-label" style="padding-top:8px;">📂 Nas suas músicas</div>`;
+
+  matches.forEach(m => {
+    const inPasta = db.pastas[pastaAtiva] && db.pastas[pastaAtiva].includes(m.id);
+    const g = m.genre ? getGenre(m.genre) : null;
+    const card = document.createElement('div');
+    card.className = 'search-result-card';
+    card.innerHTML = `
+      <div class="search-result-info">
+        <div class="search-result-title">${m.title}</div>
+        <div class="search-result-artist">${g ? g.emoji + ' ' + g.label : 'Tom: ' + (m.originalTone || 'C')}</div>
+      </div>
+      ${inPasta
+        ? '<span class="lib-check">✓</span>'
+        : `<button class="btn-search-add" style="background:var(--surface2);color:var(--text);border:1px solid var(--border2);" onclick="addFromLibrary('${m.id}')">ADD</button>`}`;
+    section.appendChild(card);
+  });
+
+  const divider = document.createElement('div');
+  divider.className = 'lib-section-label';
+  divider.style.cssText = 'padding-top:14px;border-top:1px solid var(--border);margin-top:6px;';
+  divider.textContent = '🌐 Buscar online';
+  section.appendChild(divider);
+
+  area.insertBefore(section, area.firstChild);
+}
+
 async function buscarMusica(loadMore) {
   const query = $('search-input').value.trim();
   if (!query) { showToast('Digite o nome da música'); return; }
@@ -936,21 +1134,26 @@ async function buscarMusica(loadMore) {
   const btn = $('btn-search');
   btn.disabled = true; btn.textContent = '...';
 
+  const area = $('search-results-area');
+
   if (!loadMore) {
     searchCurrentPage = 1;
-    $('search-results-area').innerHTML = '<div class="search-empty">Buscando...</div>';
+    area.innerHTML = '<div class="search-empty">Buscando online...</div>';
   }
 
   try {
     const res  = await fetch(`https://syncmusician.onrender.com/search?q=${encodeURIComponent(query)}&page=${searchCurrentPage}`);
     const data = await res.json();
 
-    const area = $('search-results-area');
-
     if (!loadMore) area.innerHTML = '';
 
+    // Insere resultados locais no topo (só na primeira página)
+    if (!loadMore) renderLocalSearchResults(query, area);
+
     if (!data.results || data.results.length === 0) {
-      area.innerHTML = '<div class="search-empty">Nenhum resultado encontrado.</div>';
+      if (!area.querySelector('.search-result-card')) {
+        area.innerHTML += '<div class="search-empty">Nenhum resultado encontrado.</div>';
+      }
       return;
     }
 
@@ -980,9 +1183,33 @@ async function buscarMusica(loadMore) {
 
   } catch {
     showToast('Erro na busca. Tente novamente.');
-    if (!loadMore) $('search-results-area').innerHTML = '<div class="search-empty">Erro na busca.</div>';
+    if (!loadMore) {
+      area.innerHTML = '';
+      renderLocalSearchResults(query, area);
+      area.innerHTML += '<div class="search-empty" style="margin-top:10px;">Sem conexão — mostrando resultados locais.</div>';
+    }
   } finally {
     btn.disabled = false; btn.textContent = 'BUSCAR';
+  }
+}
+
+// Busca local em tempo real ao digitar
+function onSearchInput() {
+  const query = $('search-input').value.trim();
+  const area  = $('search-results-area');
+  // Remove seção local anterior
+  const prev = $('local-results-section');
+  if (prev) prev.remove();
+
+  if (!query) {
+    area.innerHTML = '<div class="search-empty">Digite o nome da música acima</div>';
+    return;
+  }
+  // Mostra só locais enquanto não busca online
+  area.innerHTML = '';
+  renderLocalSearchResults(query, area);
+  if (!area.querySelector('.search-result-card')) {
+    area.innerHTML = '<div class="search-empty">Pressione BUSCAR para pesquisar online</div>';
   }
 }
 
@@ -1006,8 +1233,9 @@ async function importarDaBusca(url, title, btn) {
     const detectedTone    = detectKey(plain);
     const communityTone   = await buscarTomComunitario(url);
     const originalTone    = communityTone || detectedTone;
+    const genre           = normalizeGenre(data.genero || data.style || data.categoria || '');
     const id              = Date.now().toString();
-    db.biblioteca.push({ id, url, title: data.titulo || title, content: plain, originalTone });
+    db.biblioteca.push({ id, url, title: data.titulo || title, content: plain, originalTone, genre });
     db.pastas[pastaAtiva].push(id);
     salvarDB(); closeLibrary(); openFolder(pastaAtiva);
     showToast('Música importada!' + (communityTone ? ' (tom validado ✓)' : ''));
@@ -1055,8 +1283,9 @@ async function importLink() {
     const detectedTone    = detectKey(plain);
     const communityTone   = await buscarTomComunitario(url);
     const originalTone    = communityTone || detectedTone;
+    const genre           = normalizeGenre(data.genero || data.style || data.categoria || '');
     const id              = Date.now().toString();
-    db.biblioteca.push({ id, url, title: data.titulo || 'Sem título', content: plain, originalTone });
+    db.biblioteca.push({ id, url, title: data.titulo || 'Sem título', content: plain, originalTone, genre });
     db.pastas[pastaAtiva].push(id);
     salvarDB(); closeLibrary(); openFolder(pastaAtiva);
     $('url-input').value = '';

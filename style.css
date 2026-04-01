@@ -990,7 +990,60 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
   padding: 12px 4px;
 }
 
-/* ── Auth section in settings ── */
+/* ── Genre filter bar ── */
+.genre-filter-bar {
+  display: flex; gap: 7px; padding: 6px 14px 10px;
+  overflow-x: auto; scrollbar-width: none; flex-shrink: 0;
+}
+.genre-filter-bar::-webkit-scrollbar { display: none; }
+.genre-filter-chip {
+  padding: 6px 13px; border-radius: 20px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.5px; cursor: pointer; white-space: nowrap;
+  background: var(--surface); border: 1px solid var(--border2);
+  color: var(--text-dim); transition: all 0.15s; flex-shrink: 0;
+}
+.genre-filter-chip.active {
+  background: var(--accent); color: #000; border-color: var(--accent);
+}
+.genre-filter-chip:active { opacity: 0.7; }
+
+/* ── Local search in songs list ── */
+.local-search-wrap {
+  padding: 4px 14px 2px;
+}
+.local-search-input {
+  width: 100%; font-size: 13px !important; padding: 10px 14px !important;
+}
+
+/* ── Song genre chip on card ── */
+.song-meta-row {
+  display: flex; align-items: center; gap: 7px; margin-top: 3px; flex-wrap: wrap;
+}
+.song-genre-chip {
+  font-size: 9px; font-family: var(--font-mono); font-weight: 700;
+  letter-spacing: 0.5px; padding: 2px 7px; border-radius: 5px;
+  background: rgba(255,255,255,0.06); border: 1px solid var(--border2);
+  color: var(--text-dim); white-space: nowrap;
+}
+.chip-empty {
+  color: var(--text-muted); border-style: dashed; cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.chip-empty:active { color: var(--accent); border-color: var(--accent); }
+
+/* ── Admin genre edit button ── */
+.song-genre-edit-btn {
+  width: 26px; height: 26px; border-radius: 7px;
+  background: none; border: 1px solid var(--border);
+  color: var(--text-muted); font-size: 13px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.song-genre-edit-btn:active { background: var(--surface2); color: var(--accent); }
+
+/* ── Active genre in context menu ── */
+.genre-active { color: var(--accent); }
 .spage-auth-card {
   background: var(--surface2); border: 1px solid var(--border);
   border-radius: 14px; padding: 16px;

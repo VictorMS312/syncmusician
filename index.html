@@ -200,6 +200,7 @@
           <input type="text" id="search-input" class="input-field"
                  placeholder="Nome da música ou artista..."
                  autocomplete="off" spellcheck="false"
+                 oninput="onSearchInput()"
                  onkeydown="if(event.key==='Enter') buscarMusica()">
           <button id="btn-search" class="btn-search" onclick="buscarMusica()">BUSCAR</button>
         </div>
