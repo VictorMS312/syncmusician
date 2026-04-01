@@ -15,6 +15,8 @@ app.use(express.json());
 // ─────────────────────────────────────────────────────
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
+// Chave secreta para o bot — configure no Render: BOT_SECRET = qualquer string forte
+const BOT_SECRET   = process.env.BOT_SECRET || 'syncmusician-bot-secret-2025';
 
 const supa = axios.create({
   baseURL: `${SUPABASE_URL}/rest/v1`,
@@ -30,17 +32,23 @@ const supa = axios.create({
 //  CACHE — Supabase
 //  Tabela: cifras
 //  Colunas: id (uuid default), url (text unique), titulo (text),
-//           artista (text), conteudo (text), acessos (int4 default 0),
-//           criado_em (timestamptz default now())
+//           artista (text), genero (text), conteudo (text),
+//           acessos (int4 default 0), criado_em (timestamptz default now())
+//
+//  SQL para adicionar coluna de gênero (rode no Supabase SQL Editor):
+//  ALTER TABLE cifras ADD COLUMN IF NOT EXISTS genero text;
+//
+//  RLS: certifique-se de que SELECT é público para a anon key:
+//  CREATE POLICY "public read" ON cifras FOR SELECT USING (true);
+//  CREATE POLICY "service write" ON cifras FOR ALL USING (true);
 // ─────────────────────────────────────────────────────
 async function cacheGet(url) {
   try {
     const r = await supa.get('/cifras', {
-      params: { url: `eq.${url}`, select: 'id,url,titulo,artista,conteudo,acessos', limit: 1 },
+      params: { url: `eq.${url}`, select: 'id,url,titulo,artista,genero,conteudo,acessos', limit: 1 },
     });
     if (r.data?.length > 0) {
       const row = r.data[0];
-      // Incrementa acessos em background
       supa.patch('/cifras',
         { acessos: row.acessos + 1 },
         { params: { id: `eq.${row.id}` }, headers: { 'Prefer': 'return=minimal' } }
@@ -54,11 +62,10 @@ async function cacheGet(url) {
   }
 }
 
-async function cacheSave({ url, titulo, artista, conteudo }) {
+async function cacheSave({ url, titulo, artista, genero, conteudo }) {
   try {
-    // Upsert: onConflict na coluna url
     await supa.post('/cifras',
-      { url, titulo, artista, conteudo, acessos: 1 },
+      { url, titulo, artista, genero: genero || null, conteudo, acessos: 1 },
       {
         params:  { on_conflict: 'url' },
         headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
@@ -71,29 +78,46 @@ async function cacheSave({ url, titulo, artista, conteudo }) {
 
 async function cacheSearch(q) {
   try {
-    const terms = q.trim().split(/\s+/).filter(Boolean).slice(0, 5);
-    const main  = [...terms].sort((a, b) => b.length - a.length)[0];
+    const query = q.trim();
+    if (!query) return [];
 
-    // Supabase REST: filtro OR precisa do formato ?or=(campo.op.val,campo.op.val)
-    const orFilter = `(titulo.ilike.%${main}%,artista.ilike.%${main}%)`;
+    const terms = query.split(/\s+/).filter(Boolean).slice(0, 5);
+    // Para queries curtas (1-2 chars), busca prefix; para maiores, usa contains
+    const main  = [...terms].sort((a, b) => b.length - a.length)[0];
+    const isShort = main.length <= 2;
+
+    // Busca prefix E contains para cobrir os dois casos
+    const orFilter = isShort
+      ? `(titulo.ilike.${main}%,titulo.ilike.%${main}%,artista.ilike.${main}%)`
+      : `(titulo.ilike.%${main}%,artista.ilike.%${main}%)`;
 
     const r = await supa.get('/cifras', {
       params: {
         or:     orFilter,
-        select: 'url,titulo,artista,acessos',
-        limit:  20,
+        select: 'url,titulo,artista,genero,acessos',
+        limit:  50,               // busca mais para compensar filtro local
         order:  'acessos.desc',
       },
     });
 
     if (!r.data?.length) return [];
 
-    // Filtra localmente pelos outros termos
+    // Filtra pelos outros termos localmente
     const others = terms.filter(t => t !== main);
-    return r.data.filter(row => {
+    const filtered = r.data.filter(row => {
       const text = `${row.titulo} ${row.artista}`.toLowerCase();
       return others.every(t => text.includes(t.toLowerCase()));
     });
+
+    // Ordena: começa com o termo > contém o termo
+    filtered.sort((a, b) => {
+      const aStarts = a.titulo.toLowerCase().startsWith(query.toLowerCase()) ? 0 : 1;
+      const bStarts = b.titulo.toLowerCase().startsWith(query.toLowerCase()) ? 0 : 1;
+      if (aStarts !== bStarts) return aStarts - bStarts;
+      return b.acessos - a.acessos;
+    });
+
+    return filtered;
   } catch (e) {
     console.error('cacheSearch error:', e.response?.data || e.message);
     return [];
@@ -149,16 +173,33 @@ async function scrapeCifra(url) {
 
   const $        = cheerio.load(response.data);
   const finalUrl = response.request?.res?.responseUrl || url;
-  let cifraHtml  = null, titulo = '', artista = '';
+  let cifraHtml  = null, titulo = '', artista = '', genero = '';
 
   if (/cifraclub\.com/i.test(finalUrl)) {
     cifraHtml = $('pre').first().html();
     titulo    = $('h1.t1').text() || $('h1').first().text();
     artista   = $('h2.t3').text() || $('h2').first().text();
+    // Extrai gênero: breadcrumb, meta tag, ou link de categoria
+    genero    = $('meta[property="music:genre"]').attr('content')
+             || $('a[href*="/estilo/"]').first().text()
+             || $('a[href*="/genero/"]').first().text()
+             || $('a[href*="/estilo"]').first().text()
+             || $('div.genre').first().text()
+             || $('span.genre').first().text()
+             || '';
+    // Tenta pegar do breadcrumb (ex: Gospel > Adoração)
+    if (!genero) {
+      $('nav a, .breadcrumb a, ol.breadcrumb a').each((_, el) => {
+        const text = $(el).text().trim().toLowerCase();
+        const known = ['gospel','cristã','sertanejo','mpb','pop','rock','pagode','axé','forró','clássica','infantil'];
+        if (known.some(k => text.includes(k))) { genero = text; return false; }
+      });
+    }
   } else if (/cifras\.com/i.test(finalUrl)) {
     cifraHtml = $('pre').first().html() || $('.cifra-content').first().html();
     titulo    = $('h1').first().text();
     artista   = $('h2').first().text();
+    genero    = $('a[href*="estilo"]').first().text() || '';
   } else {
     cifraHtml = $('pre').first().html();
     titulo    = $('h1').first().text();
@@ -170,6 +211,7 @@ async function scrapeCifra(url) {
   return {
     titulo:   titulo.trim(),
     artista:  artista.trim(),
+    genero:   genero.trim().toLowerCase() || null,
     conteudo: htmlParaTexto(cifraHtml),
   };
 }
@@ -257,30 +299,33 @@ app.get('/search', async (req, res) => {
   const { q, page = 1 } = req.query;
   if (!q) return res.status(400).json({ error: 'Parâmetro q é obrigatório' });
 
-  const PAGE_SIZE = 3;
+  const PAGE_SIZE = 8;   // aumentado de 3 para 8
   const pageNum   = Number(page);
 
   try {
-    // 1. Busca no cache primeiro
+    // 1. Busca no Supabase primeiro
     const cached = await cacheSearch(q);
     const cacheResults = cached.map(r => ({
       title:  r.titulo,
       artist: r.artista,
       url:    r.url,
+      genero: r.genero || null,
+      source: 'db',
     }));
 
     const start = (pageNum - 1) * PAGE_SIZE;
 
-    // 2. Se cache satisfaz a página pedida, retorna sem ir à internet
+    // 2. Se cache satisfaz a página inteira, retorna só ele
     if (cacheResults.length >= start + PAGE_SIZE) {
       return res.json({
         results: cacheResults.slice(start, start + PAGE_SIZE),
         hasMore: cacheResults.length > start + PAGE_SIZE,
         page:    pageNum,
+        total:   cacheResults.length,
       });
     }
 
-    // 3. Complementa com DuckDuckGo
+    // 3. Complementa com DuckDuckGo (só na primeira página ou se cache insuficiente)
     let webResults = [];
     try { webResults = await searchDDG(q); } catch {}
 
@@ -289,7 +334,7 @@ app.get('/search', async (req, res) => {
     const merged = [...cacheResults];
     for (const r of webResults) {
       if (!seen.has(r.url)) {
-        merged.push({ title: r.title, artist: r.artist, url: r.url });
+        merged.push({ title: r.title, artist: r.artist, url: r.url, genero: null, source: 'web' });
         seen.add(r.url);
       }
     }
@@ -298,6 +343,7 @@ app.get('/search', async (req, res) => {
       results: merged.slice(start, start + PAGE_SIZE),
       hasMore: merged.length > start + PAGE_SIZE,
       page:    pageNum,
+      total:   merged.length,
     });
 
   } catch (error) {
@@ -316,23 +362,24 @@ app.get('/get-cifra', async (req, res) => {
     }
     url = normalizeUrl(url);
 
-    // 1. Verifica cache — retorna imediatamente se encontrado
+    // 1. Verifica cache
     const hit = await cacheGet(url);
     if (hit) {
       return res.json({
         titulo:  hit.titulo,
         artista: hit.artista,
+        genero:  hit.genero || null,
         cifra:   hit.conteudo,
       });
     }
 
     // 2. Scraping
-    const { titulo, artista, conteudo } = await scrapeCifra(url);
+    const { titulo, artista, genero, conteudo } = await scrapeCifra(url);
 
-    // 3. Salva no cache em background (não bloqueia a resposta)
-    cacheSave({ url, titulo, artista, conteudo }).catch(() => {});
+    // 3. Salva no cache em background
+    cacheSave({ url, titulo, artista, genero, conteudo }).catch(() => {});
 
-    res.json({ titulo, artista, cifra: conteudo });
+    res.json({ titulo, artista, genero: genero || null, cifra: conteudo });
 
   } catch (error) {
     res.status(error.response?.status || 500).json({
@@ -343,20 +390,86 @@ app.get('/get-cifra', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────
+//  BOT ENDPOINT — adiciona/atualiza músicas em massa
+//  Autenticação: header x-bot-secret = BOT_SECRET (env)
+//
+//  Uso no bot:
+//    POST https://syncmusician.onrender.com/bot/cifra
+//    Headers: { "Content-Type": "application/json", "x-bot-secret": "SEU_SECRET" }
+//    Body:    { "url": "...", "titulo": "...", "artista": "...", "genero": "...", "conteudo": "..." }
+//
+//  Também aceita array para inserção em lote:
+//    Body: [ { url, titulo, artista, genero, conteudo }, ... ]
+// ─────────────────────────────────────────────────────
+function botAuth(req, res, next) {
+  const secret = req.headers['x-bot-secret'];
+  if (!secret || secret !== BOT_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
+
+app.post('/bot/cifra', botAuth, async (req, res) => {
+  const items = Array.isArray(req.body) ? req.body : [req.body];
+  if (!items.length) return res.status(400).json({ error: 'Body vazio' });
+
+  const errors = [], saved = [];
+
+  for (const item of items) {
+    const { url, titulo, artista, genero, conteudo } = item;
+    if (!url || !conteudo) {
+      errors.push({ url, error: 'url e conteudo são obrigatórios' });
+      continue;
+    }
+    try {
+      await supa.post('/cifras',
+        { url: normalizeUrl(url), titulo: titulo || '', artista: artista || '', genero: genero || null, conteudo, acessos: 0 },
+        {
+          params:  { on_conflict: 'url' },
+          headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+        }
+      );
+      saved.push(url);
+    } catch (e) {
+      errors.push({ url, error: e.response?.data || e.message });
+    }
+  }
+
+  res.json({ saved: saved.length, errors: errors.length, details: errors });
+});
+
+// GET /cifras/count — quantas músicas no banco (útil para debug)
+app.get('/cifras/count', async (req, res) => {
+  try {
+    const r = await supa.get('/cifras', {
+      params: { select: 'id' },
+      headers: { 'Prefer': 'count=exact' },
+    });
+    const count = parseInt(r.headers['content-range']?.split('/')[1] || '0');
+    res.json({ count });
+  } catch (e) {
+    res.status(500).json({ error: e.response?.data || e.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────
 //  HEALTH CHECK — testa conexão com Supabase
 // ─────────────────────────────────────────────────────
 app.get('/health', async (req, res) => {
   try {
     const r = await supa.get('/cifras', {
-      params: { select: 'id', limit: 1 },
+      params: { select: 'id' },
+      headers: { 'Prefer': 'count=exact' },
     });
+    const count = parseInt(r.headers['content-range']?.split('/')[1] || r.data?.length || 0);
     res.json({
       status:   'ok',
       supabase: 'connected',
-      rows:     r.data?.length ?? 0,
+      cifras:   count,
       env: {
         supabase_url: SUPABASE_URL ? 'set' : 'MISSING',
         supabase_key: SUPABASE_KEY ? 'set' : 'MISSING',
+        bot_secret:   BOT_SECRET   ? 'set' : 'MISSING',
       },
     });
   } catch (e) {
@@ -367,6 +480,7 @@ app.get('/health', async (req, res) => {
       env: {
         supabase_url: SUPABASE_URL ? 'set' : 'MISSING',
         supabase_key: SUPABASE_KEY ? 'set' : 'MISSING',
+        bot_secret:   BOT_SECRET   ? 'set' : 'MISSING',
       },
     });
   }
