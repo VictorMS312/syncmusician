@@ -328,15 +328,24 @@ function setView(view) {
   const activeTab =
     (view === 'folders' || view === 'songs') ? 'home' :
     view === 'settings' ? 'settings' :
-    view === 'tom' ? 'tom' : null;
+    view === 'tomdetector' ? 'tomdetector' : null;
 
   document.querySelectorAll('.nav-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.tab === activeTab)
   );
+
+  // Hide Tom Detector screen unless we're on it
+  const tdScreen = $('screen-tomdetector');
+  if (tdScreen) {
+    if (view === 'tomdetector') {
+      tdScreen.classList.add('active');
+    } else {
+      tdScreen.classList.remove('active');
+    }
+  }
 }
 
 async function navConnect() {
-  tomStopDetection();
   if (keepAliveId) { clearInterval(keepAliveId); keepAliveId = null; }
   // Força remoção do líder da lista mesmo se peerIdGlobal sumiu
   if (peerIdGlobal) {
@@ -359,7 +368,6 @@ async function navConnect() {
 }
 
 function navHome() {
-  tomStopDetection();
   if (role === 'S') renderFolders();
 }
 
@@ -372,10 +380,40 @@ function logoBack() {
 }
 
 function navSettings() {
-  tomStopDetection();
   showDynamic(); hideAllPanels(); hideMedley(); stopMedleyWatcher();
   setView('settings');
   renderSettingsPage();
+}
+
+function navTomDetector() {
+  showDynamic(); hideAllPanels(); hideMedley(); stopMedleyWatcher();
+  setView('tomdetector');
+
+  const proGate = $('td-pro-gate');
+  const tdBody  = $('td-body');
+
+  if (!isPro()) {
+    if (proGate) proGate.style.display = 'flex';
+    if (tdBody)  tdBody.style.display  = 'none';
+    // Still show toggle btn as disabled hint
+    const btn = $('td-toggle-btn');
+    if (btn) { btn.textContent = '▶ INICIAR'; btn.classList.remove('on'); }
+    return;
+  }
+
+  if (proGate) proGate.style.display = 'none';
+  if (tdBody)  tdBody.style.display  = 'flex';
+
+  tdUpdateCifraCard();
+  const tog = $('td-auto-toggle');
+  if (tog) tog.classList.toggle('on', tdAuto);
+  // Re-render if already running
+  if (tdOn) {
+    const badge = $('td-live-badge');
+    if (badge) badge.classList.add('visible');
+    const btn = $('td-toggle-btn');
+    if (btn) { btn.textContent = '⏹ PARAR'; btn.classList.add('on'); }
+  }
 }
 
 function renderFolders() {
@@ -401,7 +439,6 @@ function renderFolders() {
 let genreFilter = null; // filtro ativo na pasta
 
 function openFolder(nome) {
-  tomStopDetection();
   pastaAtiva = nome;
   genreFilter = null;
   medleyHistory = [];
@@ -574,6 +611,9 @@ function openSong(index) {
   contentArea.scrollTop = 0; scrollPos = 0;
 
   if (role === 'S' && settings.medleyEnabled && isPro()) startMedleyWatcher();
+
+  // Update Tom Detector cifra card if it's open
+  tdUpdateCifraCard();
 }
 
 function fabBackHandler() {
@@ -583,9 +623,12 @@ function fabBackHandler() {
 
 function backFromSong() {
   hideAllPanels(); hideMedley(); stopScroll(); stopMedleyWatcher();
+  musicaAtivaId    = null;
+  musicaAtivaIndex = -1;
   showDynamic();
   setView('songs');
   renderSongsList();
+  tdUpdateCifraCard();
 }
 
 function showCifraView() {
@@ -1515,6 +1558,13 @@ function renderSettingsPage() {
           <span class="toggle-slider"></span>
         </label>`}
       </div>
+      <div class="spage-row">
+        <div>
+          <div class="spage-label">Detector de Tom ${!isPro() ? '<span class="feature-pro-tag">PRO</span>' : ''}</div>
+          <div class="spage-sub">Detecta tom e afinação em tempo real pelo microfone</div>
+        </div>
+        <button class="btn-spage" onclick="navTomDetector()">ABRIR</button>
+      </div>
 
     </div>
     <div class="nav-ghost-spacer"></div>`;
@@ -1879,6 +1929,380 @@ async function activateProCode() {
   } else {
     showToast('Código não reconhecido');
   }
+}
+
+// ════════════════════════════════════
+//  TOM DETECTOR ENGINE
+// ════════════════════════════════════
+const TD_NOTES    = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const TD_NOTES_PT = ['Dó','Dó#','Ré','Ré#','Mi','Fá','Fá#','Sol','Sol#','Lá','Lá#','Si'];
+const TD_COLORS   = ['#FF6B6B','#FF8E53','#FFD43B','#74C0FC','#38D9A9','#63E6BE','#4DABF7','#748FFC','#DA77F2','#F783AC','#FF87A4','#FFA94D'];
+const TD_MAJOR_P  = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
+const TD_MINOR_P  = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
+
+let tdOn           = false;
+let tdAuto         = true;
+let tdAudioCtx     = null;
+let tdAnalyser     = null;
+let tdStream       = null;
+let tdRaf          = null;
+let tdKeyInt       = null;
+let tdHistBuf      = [];
+let tdHist         = [];
+let tdDetectedKey  = null;
+let tdCurrentNote  = null;
+let tdVol          = 0;
+
+// ── YIN pitch detection ──
+function tdYinPitch(buf, sr) {
+  const W      = Math.min(buf.length >> 1, 1024);
+  const tauMax = Math.ceil(sr / 60);
+  const tauMin = Math.floor(sr / 1800);
+  const d      = new Float32Array(tauMax + 1);
+  for (let tau = 1; tau <= tauMax; tau++) {
+    let s = 0;
+    for (let i = 0; i < W; i++) { const v = buf[i] - buf[i + tau]; s += v * v; }
+    d[tau] = s;
+  }
+  const c = new Float32Array(tauMax + 1); c[0] = 1; let sum = 0;
+  for (let tau = 1; tau <= tauMax; tau++) {
+    sum += d[tau]; c[tau] = d[tau] * tau / (sum || 1e-10);
+  }
+  let best = -1;
+  for (let tau = tauMin; tau < tauMax; tau++) {
+    if (c[tau] < 0.12) {
+      while (tau + 1 < tauMax && c[tau + 1] < c[tau]) tau++;
+      best = tau; break;
+    }
+  }
+  if (best < 0) return -1;
+  if (best > 0 && best < tauMax) {
+    const a = c[best-1], b = c[best], cc = c[best+1];
+    const den = 2 * (2*b - a - cc);
+    if (Math.abs(den) > 1e-6) best += (a - cc) / den;
+  }
+  return sr / best;
+}
+
+function tdFreqToNote(f) {
+  if (f < 65 || f > 2200) return null;
+  const n   = 12 * Math.log2(f / 440) + 69;
+  const r   = Math.round(n);
+  const idx = ((r % 12) + 12) % 12;
+  return { idx, name: TD_NOTES[idx], pt: TD_NOTES_PT[idx], oct: Math.floor(r/12)-1, cents: (n-r)*100, f };
+}
+
+// ── Krumhansl-Schmuckler key detection ──
+function tdDetectKeyFromHist(hist) {
+  if (hist.length < 8) return null;
+  const cnt = new Array(12).fill(0);
+  hist.forEach(n => cnt[n]++);
+  const corr = (a, b) => {
+    const ma = a.reduce((s,v)=>s+v,0)/12, mb = b.reduce((s,v)=>s+v,0)/12;
+    let num=0, da=0, db=0;
+    for (let i=0;i<12;i++){num+=(a[i]-ma)*(b[i]-mb);da+=(a[i]-ma)**2;db+=(b[i]-mb)**2;}
+    return num / (Math.sqrt(da*db)+1e-10);
+  };
+  let best = { score: -Infinity, i: 0, mode: 'maior' };
+  for (let i=0;i<12;i++){
+    const rot = Array.from({length:12},(_,j)=>cnt[(j+i)%12]);
+    const maj = corr(rot, TD_MAJOR_P), min = corr(rot, TD_MINOR_P);
+    if (maj > best.score) best = {score:maj, i, mode:'maior'};
+    if (min > best.score) best = {score:min, i, mode:'menor'};
+  }
+  return { name:TD_NOTES[best.i], pt:TD_NOTES_PT[best.i], mode:best.mode, conf:Math.round(((best.score+1)/2)*100), i:best.i };
+}
+
+// ── Start / Stop ──
+async function tdToggle() {
+  if (!isPro()) { showToast('✦ Recurso exclusivo Pro'); return; }
+  if (tdOn) { tdStopAll(); return; }
+
+  const errEl = $('td-error');
+  if (errEl) errEl.style.display = 'none';
+
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation:false, noiseSuppression:false, autoGainControl:false }
+    });
+    tdStream = s;
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    tdAudioCtx = ac;
+    const an = ac.createAnalyser();
+    an.fftSize = 4096; an.smoothingTimeConstant = 0.6;
+    tdAnalyser = an;
+    ac.createMediaStreamSource(s).connect(an);
+    tdHistBuf = []; tdHist = [];
+    tdOn = true;
+
+    const btn   = $('td-toggle-btn');
+    const badge = $('td-live-badge');
+    if (btn)   { btn.textContent = '⏹ PARAR'; btn.classList.add('on'); }
+    if (badge) badge.classList.add('visible');
+
+    tdDetectLoop();
+    tdStartKeyInterval();
+
+  } catch (e) {
+    const errEl = $('td-error');
+    if (errEl) {
+      errEl.textContent = 'Permissão de microfone negada. Verifique as configurações do navegador.';
+      errEl.style.display = 'block';
+    }
+  }
+}
+
+function tdStopAll() {
+  tdOn = false;
+  cancelAnimationFrame(tdRaf);
+  clearInterval(tdKeyInt);
+  try { tdAudioCtx?.close(); } catch {}
+  tdStream?.getTracks().forEach(t => t.stop());
+  tdStream = null; tdAudioCtx = null; tdAnalyser = null;
+  tdCurrentNote = null; tdVol = 0; tdDetectedKey = null;
+
+  const btn   = $('td-toggle-btn');
+  const badge = $('td-live-badge');
+  if (btn)   { btn.textContent = '▶ INICIAR'; btn.classList.remove('on'); }
+  if (badge) badge.classList.remove('visible');
+
+  tdRenderNote(null);
+  tdRenderKey(null);
+  tdRenderVol(0);
+  const poly = $('td-wave-poly');
+  if (poly) poly.setAttribute('points', '0,28 320,28');
+}
+
+// ── Detection loop ──
+function tdDetectLoop() {
+  const fb   = new Float32Array(tdAnalyser.fftSize);
+  const wb   = new Uint8Array(tdAnalyser.fftSize);
+  const step = Math.floor(tdAnalyser.fftSize / 80);
+
+  function frame() {
+    if (!tdOn) return;
+    tdAnalyser.getFloatTimeDomainData(fb);
+    tdAnalyser.getByteTimeDomainData(wb);
+
+    // Volume
+    let rms = 0;
+    for (let i=0; i<fb.length; i++) rms += fb[i]*fb[i];
+    tdVol = Math.min(1, Math.sqrt(rms / fb.length) * 15);
+    tdRenderVol(tdVol);
+
+    // Waveform
+    const pts = Array.from({length:80}, (_,i) => `${(i/79)*320},${28-(wb[i*step]-128)/128*22}`).join(' ');
+    const poly = $('td-wave-poly');
+    if (poly) poly.setAttribute('points', pts);
+
+    // Pitch
+    const f = tdYinPitch(fb, tdAudioCtx.sampleRate);
+    if (f > 0) {
+      const n = tdFreqToNote(f);
+      if (n) {
+        tdCurrentNote = n;
+        tdHistBuf = [...tdHistBuf.slice(-200), n.idx];
+        tdHist    = [...tdHist.slice(-60), n.idx];
+        tdRenderNote(n);
+        tdRenderHist();
+      }
+    }
+    tdRaf = requestAnimationFrame(frame);
+  }
+  tdRaf = requestAnimationFrame(frame);
+}
+
+function tdStartKeyInterval() {
+  clearInterval(tdKeyInt);
+  tdKeyInt = setInterval(() => {
+    if (!tdAuto || !tdOn) return;
+    if (tdHistBuf.length >= 8) {
+      tdDetectedKey = tdDetectKeyFromHist(tdHistBuf.slice(-80));
+      tdRenderKey(tdDetectedKey);
+      tdUpdateCifraCard();
+    }
+  }, 1200);
+}
+
+// ── Toggle auto update ──
+function tdToggleAuto() {
+  tdAuto = !tdAuto;
+  const tog = $('td-auto-toggle');
+  if (tog) tog.classList.toggle('on', tdAuto);
+}
+
+// ── Render helpers ──
+function tdRenderNote(n) {
+  const disp = $('td-note-display');
+  const sub  = $('td-note-sub');
+  const card = $('td-note-card');
+
+  if (!n) {
+    if (disp) { disp.textContent = '—'; disp.classList.remove('lit'); disp.style.color = ''; }
+    if (sub)  sub.textContent = '';
+    if (card) { card.classList.remove('lit'); card.style.borderColor = ''; }
+    tdRenderTuner(null);
+    return;
+  }
+  const col = TD_COLORS[n.idx];
+  if (disp) { disp.textContent = n.pt; disp.classList.add('lit'); disp.style.color = col; }
+  if (sub)  sub.textContent = `${n.name}${n.oct} · ${n.f.toFixed(1)} Hz`;
+  if (card) { card.classList.add('lit'); card.style.borderColor = col + '55'; }
+  tdRenderTuner(n);
+}
+
+function tdRenderKey(k) {
+  const disp    = $('td-key-display');
+  const confRow = $('td-key-conf-row');
+  const fill    = $('td-key-conf-fill');
+  const pct     = $('td-key-conf-pct');
+  const card    = $('td-key-card');
+
+  if (!k) {
+    if (disp) { disp.textContent = 'cante para detectar...'; disp.classList.remove('lit'); disp.style.color = ''; }
+    if (confRow) confRow.style.display = 'none';
+    if (card) { card.classList.remove('lit'); card.style.borderColor = ''; }
+    return;
+  }
+  const col = TD_COLORS[k.i];
+  if (disp) { disp.textContent = `${k.pt} ${k.mode}`; disp.classList.add('lit'); disp.style.color = col; }
+  if (confRow) confRow.style.display = 'flex';
+  if (fill) fill.style.width = `${k.conf}%`;
+  if (pct)  pct.textContent = `${k.conf}%`;
+  if (card) { card.classList.add('lit'); card.style.borderColor = col + '40'; }
+}
+
+function tdRenderVol(v) {
+  const fill = $('td-vol-fill');
+  if (!fill) return;
+  fill.style.height = `${v * 100}%`;
+  fill.classList.toggle('loud', v > 0.8);
+}
+
+function tdRenderTuner(n) {
+  const needle     = $('td-needle');
+  const dot        = $('td-needle-dot');
+  const arc        = $('td-active-arc');
+  const centsLbl   = $('td-cents-lbl');
+  const tuneStatus = $('td-tune-status');
+  const intArc     = $('td-intune-arc');
+  if (!needle) return;
+
+  if (!n) {
+    needle.setAttribute('x2', '90'); needle.setAttribute('y2', '25');
+    needle.setAttribute('stroke', '#333');
+    if (dot) dot.setAttribute('fill', '#333');
+    if (arc) arc.setAttribute('opacity', '0');
+    if (centsLbl) centsLbl.textContent = '— ¢';
+    if (intArc)   intArc.setAttribute('opacity', '0.15');
+    if (tuneStatus) { tuneStatus.textContent = 'aguardando'; tuneStatus.className = 'td-tune-status dim'; }
+    return;
+  }
+
+  const deg = Math.max(-45, Math.min(45, n.cents / 50 * 45));
+  const nx  = 90 + 65 * Math.cos((deg - 90) * Math.PI / 180);
+  const ny  = 90 + 65 * Math.sin((deg - 90) * Math.PI / 180);
+  const col = TD_COLORS[n.idx];
+  const inTune = Math.abs(n.cents) < 10;
+
+  needle.setAttribute('x2', nx.toFixed(2));
+  needle.setAttribute('y2', ny.toFixed(2));
+  needle.setAttribute('stroke', inTune ? '#10b981' : col);
+  if (dot) dot.setAttribute('fill', col);
+
+  if (arc) {
+    const d = deg >= 0
+      ? `M 90,20 A 70 70 0 0 1 ${nx.toFixed(2)},${ny.toFixed(2)}`
+      : `M ${nx.toFixed(2)},${ny.toFixed(2)} A 70 70 0 0 1 90,20`;
+    arc.setAttribute('d', d);
+    arc.setAttribute('stroke', inTune ? '#10b981' : col);
+    arc.setAttribute('opacity', '0.5');
+  }
+
+  if (centsLbl) centsLbl.textContent = `${n.cents > 0 ? '+' : ''}${n.cents.toFixed(0)}¢`;
+  if (intArc)   intArc.setAttribute('opacity', inTune ? '0.8' : '0.15');
+
+  if (tuneStatus) {
+    if (inTune) {
+      tuneStatus.textContent = '✓ AFINADO';
+      tuneStatus.className   = 'td-tune-status in-tune';
+    } else {
+      tuneStatus.textContent = n.cents > 0 ? '▲ muito agudo' : '▼ muito grave';
+      tuneStatus.className   = 'td-tune-status';
+    }
+  }
+}
+
+function tdRenderHist() {
+  const bars  = $('td-hist-bars');
+  const chips = $('td-hist-chips');
+  const count = $('td-hist-count');
+  if (!bars) return;
+
+  if (tdHist.length === 0) {
+    bars.innerHTML = '<span class="td-hist-empty">aguardando entrada de áudio...</span>';
+    if (chips) chips.innerHTML = '';
+    return;
+  }
+  if (count) count.textContent = `(${tdHist.length})`;
+
+  const recent = tdHist.slice(-55);
+  bars.innerHTML = recent.map((n, i, a) => {
+    const h   = 18 + (n % 3) * 6;
+    const op  = 0.15 + (i / a.length) * 0.85;
+    const glow = i === a.length - 1 ? `filter:drop-shadow(0 0 4px ${TD_COLORS[n]});` : '';
+    return `<div class="td-hist-bar" style="height:${h}px;background:${TD_COLORS[n]};opacity:${op};${glow}" title="${TD_NOTES_PT[n]}"></div>`;
+  }).join('');
+
+  if (chips) {
+    const unique = [...new Set(tdHist.slice(-30))];
+    chips.innerHTML = unique.map(n =>
+      `<span class="td-hist-chip" style="background:${TD_COLORS[n]}18;border-color:${TD_COLORS[n]}40;color:${TD_COLORS[n]}">${TD_NOTES_PT[n]}</span>`
+    ).join('');
+  }
+}
+
+// ── Cifra card ──
+function tdUpdateCifraCard() {
+  const infoEl   = $('td-cifra-info');
+  const transRow = $('td-autotranspose-row');
+  if (!infoEl) return;
+
+  if (!musicaAtivaId) {
+    infoEl.innerHTML = '<span class="td-cifra-none">Abra uma cifra para ver aqui</span>';
+    if (transRow) transRow.style.display = 'none';
+    return;
+  }
+
+  const m = db.biblioteca.find(b => b.id === musicaAtivaId);
+  if (!m) {
+    infoEl.innerHTML = '<span class="td-cifra-none">Abra uma cifra para ver aqui</span>';
+    if (transRow) transRow.style.display = 'none';
+    return;
+  }
+
+  let html = `<span class="td-cifra-title">${m.title}</span><span class="td-cifra-tone-badge">${currentNote}</span>`;
+  if (tdDetectedKey) {
+    html += `<span class="td-cifra-arrow">→</span><span class="td-cifra-tone-target">${tdDetectedKey.name}</span>`;
+    if (transRow) {
+      transRow.style.display = 'flex';
+      const applyBtn = $('td-apply-transpose');
+      if (applyBtn) applyBtn.disabled = (tdDetectedKey.name === currentNote);
+    }
+  } else {
+    if (transRow) transRow.style.display = 'none';
+  }
+  infoEl.innerHTML = html;
+}
+
+// ── Apply transpose from detected key ──
+function tdApplyTranspose() {
+  if (!isPro()) { showToast('✦ Recurso exclusivo Pro'); return; }
+  if (!tdDetectedKey) { showToast('Detecte um tom primeiro'); return; }
+  if (!musicaAtivaId) { showToast('Nenhuma cifra aberta'); return; }
+  selectTone(tdDetectedKey.name);
+  showToast(`Tom ajustado para ${tdDetectedKey.name} ✓`);
+  tdUpdateCifraCard();
 }
 
 // ════════════════════════════════════
@@ -2537,521 +2961,3 @@ function buildPianoDiagram(data) {
   return wrap;
 }
 
-
-// ════════════════════════════════════
-//  TOM DETECTOR
-// ════════════════════════════════════
-
-// ── State ──
-let _tomActive  = false;
-let _tomCtx     = null, _tomAna = null, _tomRaf = null, _tomStream = null;
-let _tomHistBuf = [];
-let _tomKeyInt  = null;
-let _tomAutoKey = true;
-let _tomSearchTmr = null;
-
-// ── Music Theory ──
-const _TOM_MAJOR = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
-const _TOM_MINOR = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
-const _TOM_NOTES_PT = ['Dó','Dó#','Ré','Ré#','Mi','Fá','Fá#','Sol','Sol#','Lá','Lá#','Si'];
-const _TOM_COLORS = ['#ef4444','#f97316','#eab308','#84cc16','#22c55e','#14b8a6',
-                     '#3b82f6','#818cf8','#a855f7','#ec4899','#f43f5e','#fb923c'];
-
-// ── YIN pitch detection ──
-function _tomYin(buf, sr) {
-  const W = Math.min(buf.length >> 1, 1024);
-  const tauMax = Math.ceil(sr / 60);
-  const tauMin = Math.floor(sr / 1800);
-  const d = new Float32Array(tauMax + 1);
-  for (let tau = 1; tau <= tauMax; tau++) {
-    let s = 0;
-    for (let i = 0; i < W; i++) { const v = buf[i] - buf[i + tau]; s += v * v; }
-    d[tau] = s;
-  }
-  const c = new Float32Array(tauMax + 1); c[0] = 1;
-  let sum = 0;
-  for (let tau = 1; tau <= tauMax; tau++) {
-    sum += d[tau]; c[tau] = d[tau] * tau / (sum || 1e-10);
-  }
-  let best = -1;
-  for (let tau = tauMin; tau < tauMax; tau++) {
-    if (c[tau] < 0.12) {
-      while (tau + 1 < tauMax && c[tau + 1] < c[tau]) tau++;
-      best = tau; break;
-    }
-  }
-  if (best < 0) return -1;
-  if (best > 0 && best < tauMax) {
-    const a = c[best-1], b = c[best], cc = c[best+1];
-    const den = 2*(2*b-a-cc);
-    if (Math.abs(den) > 1e-6) best += (a-cc)/den;
-  }
-  return sr / best;
-}
-
-function _tomFreqToNote(f) {
-  if (f < 65 || f > 2200) return null;
-  const n = 12 * Math.log2(f / 440) + 69;
-  const r = Math.round(n);
-  const idx = ((r % 12) + 12) % 12;
-  return { idx, name: notes[idx], pt: _TOM_NOTES_PT[idx], oct: Math.floor(r/12)-1, cents: (n-r)*100, f };
-}
-
-// ── Krumhansl-Schmuckler key detection ──
-function _tomDetectKey(hist) {
-  if (hist.length < 8) return null;
-  const cnt = new Array(12).fill(0);
-  hist.forEach(n => cnt[n]++);
-  const corr = (a, b) => {
-    const ma = a.reduce((s,v)=>s+v,0)/12, mb = b.reduce((s,v)=>s+v,0)/12;
-    let num=0,da=0,db=0;
-    for (let i=0;i<12;i++){num+=(a[i]-ma)*(b[i]-mb);da+=(a[i]-ma)**2;db+=(b[i]-mb)**2;}
-    return num/(Math.sqrt(da*db)+1e-10);
-  };
-  let best = {score:-Infinity, i:0, mode:'maior'};
-  for (let i=0;i<12;i++) {
-    const rot = Array.from({length:12},(_,j)=>cnt[(j+i)%12]);
-    const maj = corr(rot,_TOM_MAJOR), min = corr(rot,_TOM_MINOR);
-    if (maj>best.score) best={score:maj,i,mode:'maior'};
-    if (min>best.score) best={score:min,i,mode:'menor'};
-  }
-  return {name:notes[best.i], pt:_TOM_NOTES_PT[best.i], mode:best.mode,
-          conf:Math.round(((best.score+1)/2)*100), i:best.i};
-}
-
-// ── Navigation ──
-function navTomDetector() {
-  tomStopDetection();
-  showDynamic(); hideAllPanels(); hideMedley(); stopMedleyWatcher();
-  setView('tom');
-  _renderTomDetector();
-}
-
-// ── Render ──
-function _renderTomDetector() {
-  dynamicContent.innerHTML = `
-<div class="view-header" style="padding-bottom:6px;">
-  <div class="view-title">Detector de Tom</div>
-  <button id="td-mic-btn" class="td-mic-btn" onclick="tomToggle()">▶ INICIAR</button>
-</div>
-
-<div class="td-top-grid">
-  <!-- Nota atual -->
-  <div class="td-card td-note-card">
-    <div class="td-lbl">NOTA ATUAL</div>
-    <div class="td-note-big" id="td-note">—</div>
-    <div class="td-note-sub" id="td-note-sub"> </div>
-    <div class="td-vol-track">
-      <div class="td-vol-fill" id="td-vol-fill" style="height:0%"></div>
-    </div>
-  </div>
-
-  <!-- Afinação (tuner) -->
-  <div class="td-card td-tuner-card">
-    <div class="td-lbl">AFINAÇÃO</div>
-    <svg id="td-svg" class="td-tuner-svg" viewBox="0 0 180 102">
-      <!-- background arc -->
-      <path d="M 38.2,38.2 A 70 70 0 0 1 141.8,38.2"
-            fill="none" stroke="#252525" stroke-width="7" stroke-linecap="round"/>
-      <!-- in-tune zone -->
-      <path id="td-zone" d="M 87,19.5 A 70 70 0 0 1 93,19.5"
-            fill="none" stroke="#10b981" stroke-width="7"
-            stroke-linecap="round" opacity="0.15"/>
-      <!-- active deviation arc -->
-      <path id="td-arc" d="" fill="none" stroke-width="3"
-            stroke-linecap="round" stroke="#f59e0b" opacity="0.55"/>
-      <!-- tick marks -->
-      <circle cx="38.2"  cy="38.2" r="1.5" fill="#2a2a2a"/>
-      <circle cx="53.5"  cy="26.8" r="1.5" fill="#2a2a2a"/>
-      <circle cx="71.1"  cy="19.5" r="1.5" fill="#2a2a2a"/>
-      <circle cx="90"    cy="17"   r="3"   fill="#f59e0b"/>
-      <circle cx="108.9" cy="19.5" r="1.5" fill="#2a2a2a"/>
-      <circle cx="126.5" cy="26.8" r="1.5" fill="#2a2a2a"/>
-      <circle cx="141.8" cy="38.2" r="1.5" fill="#2a2a2a"/>
-      <!-- needle -->
-      <line id="td-needle" x1="90" y1="90" x2="90" y2="25"
-            stroke="#444" stroke-width="2.5" stroke-linecap="round"/>
-      <circle id="td-ndot" cx="90" cy="90" r="5" fill="#444"/>
-    </svg>
-    <div class="td-cents" id="td-cents">— ¢</div>
-    <div class="td-tstatus" id="td-tstatus">aguardando</div>
-  </div>
-</div>
-
-<!-- Tom detectado -->
-<div class="td-card td-key-card">
-  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-    <div style="flex:1;min-width:0;">
-      <div class="td-lbl">TOM DETECTADO</div>
-      <div class="td-key-big" id="td-key-name">cante para detectar</div>
-    </div>
-    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex-shrink:0;">
-      <label class="toggle">
-        <input type="checkbox" id="td-auto-chk" ${_tomAutoKey?'checked':''}
-               onchange="tomSetAutoKey(this.checked)">
-        <span class="toggle-slider"></span>
-      </label>
-      <span class="td-lbl" style="font-size:7px;letter-spacing:1px;">AUTO</span>
-    </div>
-  </div>
-  <div id="td-conf-row" style="display:none;align-items:center;gap:8px;margin-top:8px;">
-    <div class="td-conf-bg"><div class="td-conf-fill" id="td-conf-fill"></div></div>
-    <span class="td-lbl" id="td-conf-pct" style="min-width:28px;text-align:right;">—</span>
-  </div>
-</div>
-
-<!-- Onda sonora -->
-<div class="td-card" style="padding:14px 16px;">
-  <div class="td-lbl" style="margin-bottom:8px;">FORMA DE ONDA</div>
-  <div class="td-canvas-wrap">
-    <canvas id="td-canvas" class="td-canvas" height="48"></canvas>
-  </div>
-</div>
-
-<!-- Histórico de notas -->
-<div class="td-card" style="padding:14px 16px;">
-  <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:8px;">
-    <div class="td-lbl">SEQUÊNCIA DE NOTAS</div>
-    <span class="td-lbl" id="td-hist-ct" style="font-size:7px;color:#333;"></span>
-  </div>
-  <div id="td-hist" class="td-hist">
-    <span class="td-empty">aguardando entrada de áudio...</span>
-  </div>
-</div>
-
-<!-- Identificar música -->
-<div class="td-card" style="padding:16px;">
-  <div class="td-lbl" style="margin-bottom:12px;">IDENTIFICAR MÚSICA NA BIBLIOTECA</div>
-
-  <div style="display:flex;gap:8px;margin-bottom:12px;">
-    <input type="text" id="td-search-inp" class="input-field" style="flex:1;"
-      placeholder="Nome da música..."
-      autocomplete="off" spellcheck="false"
-      oninput="tomSearchDebounce()"
-      onkeydown="if(event.key==='Enter')tomSearchSong()">
-    <button class="btn-search" onclick="tomSearchSong()">BUSCAR</button>
-  </div>
-
-  <div id="td-results">
-    <div class="td-empty" style="padding:14px 0;text-align:center;">
-      Digite o nome de uma música para buscar cifras na nossa biblioteca
-    </div>
-  </div>
-</div>
-
-<div class="nav-ghost-spacer"></div>
-  `;
-
-  // Init canvas size
-  const canvas = $('td-canvas');
-  if (canvas) {
-    canvas.width = canvas.parentElement.clientWidth || 320;
-  }
-}
-
-// ── Toggle mic on/off ──
-async function tomToggle() {
-  _tomActive ? tomStopDetection() : await _tomStart();
-}
-
-async function _tomStart() {
-  try {
-    const s = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-    });
-    _tomStream = s;
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
-    _tomCtx = ac;
-    const an = ac.createAnalyser();
-    an.fftSize = 4096; an.smoothingTimeConstant = 0.65;
-    _tomAna = an;
-    ac.createMediaStreamSource(s).connect(an);
-    _tomHistBuf = [];
-    _tomActive = true;
-
-    const btn = $('td-mic-btn');
-    if (btn) { btn.textContent = '⏹ PARAR'; btn.classList.add('active'); }
-
-    _tomLoop(an, ac);
-    if (_tomAutoKey) _tomStartKeyInterval();
-  } catch {
-    showToast('Permissão de microfone negada.');
-  }
-}
-
-function tomStopDetection() {
-  if (!_tomActive && !_tomCtx) return;
-  _tomActive = false;
-  cancelAnimationFrame(_tomRaf);
-  clearInterval(_tomKeyInt);
-  try { _tomCtx && _tomCtx.close(); } catch {}
-  _tomStream && _tomStream.getTracks().forEach(t => t.stop());
-  _tomCtx = null; _tomAna = null; _tomStream = null; _tomHistBuf = [];
-
-  const btn = $('td-mic-btn');
-  if (btn) { btn.textContent = '▶ INICIAR'; btn.classList.remove('active'); }
-
-  const noteEl = $('td-note');
-  if (noteEl) noteEl.textContent = '—';
-  const centsEl = $('td-cents');
-  if (centsEl) { centsEl.textContent = '— ¢'; centsEl.style.color = ''; }
-  const statusEl = $('td-tstatus');
-  if (statusEl) { statusEl.textContent = 'aguardando'; statusEl.style.color = ''; }
-  const needle = $('td-needle');
-  if (needle) {
-    needle.setAttribute('x2','90'); needle.setAttribute('y2','25');
-    needle.setAttribute('stroke','#444');
-  }
-  const ndot = $('td-ndot');
-  if (ndot) ndot.setAttribute('fill','#444');
-  const canvas = $('td-canvas');
-  if (canvas) canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
-}
-
-// ── Detection loop ──
-function _tomLoop(an, ac) {
-  const fb = new Float32Array(an.fftSize);
-  const wb = new Uint8Array(an.fftSize);
-  const step = Math.floor(an.fftSize / 80);
-
-  function frame() {
-    if (!_tomActive) return;
-    an.getFloatTimeDomainData(fb);
-    an.getByteTimeDomainData(wb);
-
-    // Volume
-    let rms = 0; for (let i=0;i<fb.length;i++) rms+=fb[i]*fb[i];
-    const vol = Math.min(1, Math.sqrt(rms/fb.length)*15);
-    const vEl = $('td-vol-fill');
-    if (vEl) vEl.style.height = `${vol*100}%`;
-
-    // Waveform
-    const wave = Array.from({length:80}, (_,i) => (wb[i*step]-128)/128);
-    _tomDrawWave(wave);
-
-    // Pitch
-    const freq = _tomYin(fb, ac.sampleRate);
-    if (freq > 0) {
-      const n = _tomFreqToNote(freq);
-      if (n) {
-        _tomUpdateNote(n);
-        _tomHistBuf = [..._tomHistBuf.slice(-200), n.idx];
-        _tomUpdateHist(_tomHistBuf);
-      }
-    }
-
-    _tomRaf = requestAnimationFrame(frame);
-  }
-  _tomRaf = requestAnimationFrame(frame);
-}
-
-// ── Key interval ──
-function _tomStartKeyInterval() {
-  clearInterval(_tomKeyInt);
-  _tomKeyInt = setInterval(() => {
-    if (_tomHistBuf.length >= 8) {
-      const k = _tomDetectKey(_tomHistBuf.slice(-80));
-      if (k) _tomUpdateKey(k);
-    }
-  }, 1200);
-}
-
-function tomSetAutoKey(v) {
-  _tomAutoKey = v;
-  if (v && _tomActive) _tomStartKeyInterval();
-  else if (!v) clearInterval(_tomKeyInt);
-}
-
-// ── DOM updates ──
-function _tomUpdateNote(n) {
-  const noteEl    = $('td-note');
-  const subEl     = $('td-note-sub');
-  const centsEl   = $('td-cents');
-  const statusEl  = $('td-tstatus');
-  const needle    = $('td-needle');
-  const ndot      = $('td-ndot');
-  const zone      = $('td-zone');
-  const arcEl     = $('td-arc');
-  if (!noteEl) return;
-
-  const cents   = n.cents;
-  const inTune  = Math.abs(cents) < 10;
-  const color   = inTune ? '#10b981' : '#f59e0b';
-
-  noteEl.textContent  = n.pt;
-  noteEl.style.color  = color;
-  if (subEl) subEl.textContent = `${n.name}${n.oct} · ${n.f.toFixed(1)} Hz`;
-
-  if (centsEl) {
-    centsEl.textContent = `${cents>0?'+':''}${cents.toFixed(0)}¢`;
-    centsEl.style.color = color;
-  }
-  if (statusEl) {
-    statusEl.textContent = inTune ? '✓ AFINADO' : cents>0 ? '▲ agudo' : '▼ grave';
-    statusEl.style.color  = color;
-  }
-
-  // Needle
-  const deg = Math.max(-45, Math.min(45, cents/50*45));
-  const rad = (deg - 90) * Math.PI / 180;
-  const nx  = 90 + 65*Math.cos(rad), ny = 90 + 65*Math.sin(rad);
-  if (needle) {
-    needle.setAttribute('x2', nx.toFixed(1));
-    needle.setAttribute('y2', ny.toFixed(1));
-    needle.setAttribute('stroke', color);
-  }
-  if (ndot) ndot.setAttribute('fill', color);
-  if (zone) zone.setAttribute('opacity', inTune ? '0.85' : '0.15');
-
-  // Active arc (from 12 o'clock to needle position)
-  if (arcEl && Math.abs(cents) > 2) {
-    const start = {x:90, y:25};
-    const sweep = deg > 0 ? 1 : 0;
-    arcEl.setAttribute('d', `M ${start.x},${start.y} A 65 65 0 0 ${sweep} ${nx.toFixed(1)},${ny.toFixed(1)}`);
-    arcEl.setAttribute('stroke', color);
-  } else if (arcEl) {
-    arcEl.setAttribute('d','');
-  }
-}
-
-function _tomUpdateKey(k) {
-  const keyEl   = $('td-key-name');
-  const confRow = $('td-conf-row');
-  const confFil = $('td-conf-fill');
-  const confPct = $('td-conf-pct');
-  if (!keyEl) return;
-  keyEl.textContent = `${k.pt} ${k.mode}`;
-  keyEl.style.color = 'var(--accent)';
-  if (confRow) confRow.style.display = 'flex';
-  if (confFil) confFil.style.width = `${k.conf}%`;
-  if (confPct) confPct.textContent = `${k.conf}%`;
-}
-
-function _tomDrawWave(wave) {
-  const canvas = $('td-canvas');
-  if (!canvas) return;
-  const g = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  g.clearRect(0,0,W,H);
-  // center line
-  g.strokeStyle = '#222';
-  g.lineWidth = 1;
-  g.beginPath(); g.moveTo(0,H/2); g.lineTo(W,H/2); g.stroke();
-  // wave
-  g.strokeStyle = '#10b981';
-  g.lineWidth = 1.5;
-  g.shadowColor = 'rgba(16,185,129,0.3)';
-  g.shadowBlur = 4;
-  g.beginPath();
-  wave.forEach((v,i) => {
-    const x = (i/(wave.length-1))*W, y = H/2 - v*(H/2-2);
-    i===0 ? g.moveTo(x,y) : g.lineTo(x,y);
-  });
-  g.stroke();
-  g.shadowBlur = 0;
-}
-
-function _tomUpdateHist(hist) {
-  const el = $('td-hist');
-  const ct = $('td-hist-ct');
-  if (!el) return;
-  if (!hist.length) {
-    el.innerHTML = '<span class="td-empty">aguardando entrada de áudio...</span>';
-    if (ct) ct.textContent = '';
-    return;
-  }
-  if (ct) ct.textContent = `(${hist.length})`;
-  const slice = hist.slice(-55);
-  el.innerHTML = slice.map((n,i,a) => {
-    const c   = _TOM_COLORS[n];
-    const op  = (0.2 + (i/a.length)*0.8).toFixed(2);
-    const h   = 14 + (n % 4)*5;
-    const glow = i === a.length-1 ? `box-shadow:0 0 5px ${c};` : '';
-    return `<div style="flex:0 0 auto;width:5px;height:${h}px;border-radius:2px 2px 0 0;background:${c};opacity:${op};${glow}" title="${_TOM_NOTES_PT[n]}"></div>`;
-  }).join('');
-}
-
-// ── Song search ──
-function tomSearchDebounce() {
-  clearTimeout(_tomSearchTmr);
-  _tomSearchTmr = setTimeout(tomSearchSong, 450);
-}
-
-async function tomSearchSong() {
-  clearTimeout(_tomSearchTmr);
-  const inp = $('td-search-inp');
-  const res = $('td-results');
-  if (!inp || !res) return;
-
-  const q = inp.value.trim();
-  if (!q) {
-    res.innerHTML = `<div class="td-empty" style="padding:14px 0;text-align:center;">Digite o nome de uma música para buscar</div>`;
-    return;
-  }
-
-  res.innerHTML = `<div class="td-empty" style="padding:14px 0;text-align:center;">🔍 Buscando...</div>`;
-
-  const qLow = q.toLowerCase();
-
-  // 1. Local library
-  const local = db.biblioteca.filter(m => m.title.toLowerCase().includes(qLow)).slice(0,5);
-
-  // 2. App server
-  let server = [];
-  try {
-    const r = await fetch(`${API}/search?q=${encodeURIComponent(q)}&page=1`);
-    const d = await r.json();
-    server = (d.results||[]).slice(0,6);
-  } catch {}
-
-  if (!local.length && !server.length) {
-    res.innerHTML = `
-      <div class="td-not-found">
-        <div class="td-not-found-icon">🎵</div>
-        <div class="td-not-found-msg">
-          Nenhuma cifra encontrada para <strong>"${q}"</strong> na nossa biblioteca.<br><br>
-          Você pode adicionar essa música manualmente usando o botão <strong>+</strong>, ou tente buscar com outro nome.
-        </div>
-      </div>`;
-    return;
-  }
-
-  let html = '';
-
-  if (local.length) {
-    html += `<div class="lib-section-label" style="padding-top:0;">📂 Na sua biblioteca</div>`;
-    local.forEach(m => {
-      const inPasta = pastaAtiva && db.pastas[pastaAtiva] && db.pastas[pastaAtiva].includes(m.id);
-      const toneBadge = `<span class="song-badge" style="font-size:10px;padding:2px 7px;">${m.originalTone||'C'}</span>`;
-      html += `
-        <div class="search-result-card">
-          <div class="search-result-info">
-            <div class="search-result-title">${m.title}</div>
-            <div class="search-result-artist">Tom: ${m.originalTone||'C'}</div>
-          </div>
-          ${inPasta
-            ? '<span class="lib-check">✓</span>'
-            : pastaAtiva
-              ? `<button class="btn-search-add" onclick="addFromLibrary('${m.id}');tomSearchSong()">ADD</button>`
-              : toneBadge}
-        </div>`;
-    });
-  }
-
-  if (server.length) {
-    const hasSep = local.length > 0;
-    html += `<div class="lib-section-label" style="padding-top:${hasSep?'12':'0'}px;${hasSep?'border-top:1px solid var(--border);margin-top:6px;':''}">🌐 No servidor</div>`;
-    server.forEach(r => {
-      html += `
-        <div class="search-result-card">
-          <div class="search-result-info">
-            <div class="search-result-title">${r.title}</div>
-            <div class="search-result-artist">${r.artist||'—'}</div>
-          </div>
-          <button class="btn-search-add" onclick="importarDaBusca('${esc(r.url)}','${esc(r.title)}',this)">ADD</button>
-        </div>`;
-    });
-  }
-
-  res.innerHTML = html;
-}
