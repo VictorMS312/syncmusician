@@ -271,7 +271,7 @@
 <div id="screen-tomdetector" class="td-screen">
   <div class="td-header">
     <div class="td-header-left">
-      <div class="td-title">◈ Tom Detector</div>
+      <div class="td-title">◈ Detector ao Vivo</div>
       <div class="td-subtitle">SYNCMUSICIAN PRO</div>
     </div>
     <div class="td-header-right">
@@ -284,7 +284,7 @@
   <div id="td-pro-gate" class="td-pro-gate" style="display:none;">
     <div class="td-pro-gate-icon">🎙️</div>
     <div class="td-pro-gate-title">Recurso Exclusivo Pro</div>
-    <div class="td-pro-gate-sub">Acesse o detector de tom e afinação em tempo real com sua conta Pro.</div>
+    <div class="td-pro-gate-sub">Identifica músicas, detecta o tom e transpõe a cifra automaticamente em tempo real.</div>
     <button class="td-pro-gate-btn" onclick="navSettings()">ATIVAR PRO</button>
   </div>
 
@@ -292,100 +292,47 @@
     <!-- ERROR -->
     <div id="td-error" class="td-error" style="display:none;"></div>
 
-    <!-- MAIN ROW: tuner + note + key -->
-    <div class="td-main-row">
-      <!-- Tuner gauge -->
-      <div class="td-card td-tuner-card">
-        <div class="td-card-label">AFINAÇÃO</div>
-        <svg id="td-tuner-svg" width="148" height="100" viewBox="0 0 180 105">
-          <path d="M 40.5,40.5 A 70 70 0 0 1 139.5,40.5" fill="none" stroke="#252525" stroke-width="7" stroke-linecap="round"/>
-          <path id="td-intune-arc" d="M 86,20.2 A 70 70 0 0 1 94,20.2" fill="none" stroke="#10b981" stroke-width="7" stroke-linecap="round" opacity="0.15"/>
-          <path id="td-active-arc" d="" fill="none" stroke="#f59e0b" stroke-width="3" stroke-linecap="round" opacity="0" />
-          <circle cx="35" cy="90" r="1.5" fill="#333"/>
-          <circle cx="57" cy="38" r="1.5" fill="#333"/>
-          <circle cx="90" cy="20" r="3" fill="#f59e0b"/>
-          <circle cx="123" cy="38" r="1.5" fill="#333"/>
-          <circle cx="145" cy="90" r="1.5" fill="#333"/>
-          <line id="td-needle" x1="90" y1="90" x2="90" y2="25" stroke="#333" stroke-width="2.5" stroke-linecap="round"/>
-          <circle id="td-needle-dot" cx="90" cy="90" r="5" fill="#333"/>
-          <text id="td-cents-lbl" x="90" y="102" text-anchor="middle" fill="#444" font-size="9" font-family="'JetBrains Mono',monospace">— ¢</text>
-        </svg>
-        <div id="td-tune-status" class="td-tune-status">aguardando</div>
-      </div>
-
-      <!-- Note + Key stack -->
-      <div class="td-note-key-stack">
-        <div class="td-card td-note-card" id="td-note-card">
-          <div class="td-card-label">NOTA ATUAL</div>
-          <div class="td-note-display" id="td-note-display">—</div>
-          <div class="td-note-sub" id="td-note-sub"></div>
-          <div class="td-vol-bar"><div id="td-vol-fill" class="td-vol-fill"></div></div>
-        </div>
-        <div class="td-card td-key-card" id="td-key-card">
-          <div class="td-card-label">TOM DETECTADO</div>
-          <div class="td-key-display" id="td-key-display">cante para detectar...</div>
-          <div class="td-key-conf-row" id="td-key-conf-row" style="display:none;">
-            <div class="td-key-conf-bar"><div id="td-key-conf-fill" class="td-key-conf-fill"></div></div>
-            <span id="td-key-conf-pct" class="td-key-conf-pct">0%</span>
-          </div>
+    <!-- 1. TOM IDENTIFICADO -->
+    <div class="td-card td-key-card" id="td-key-card">
+      <div class="td-card-label">TOM IDENTIFICADO</div>
+      <div class="td-key-main-row">
+        <div id="td-key-display" class="td-key-display">cante para detectar...</div>
+        <div class="td-key-conf-wrap" id="td-key-conf-wrap" style="display:none;">
+          <div class="td-key-conf-bar"><div id="td-key-conf-fill" class="td-key-conf-fill"></div></div>
+          <span id="td-key-conf-pct" class="td-key-conf-pct">0%</span>
         </div>
       </div>
+      <div id="td-key-sub" class="td-key-sub"></div>
     </div>
 
-    <!-- CIFRA ATUAL + TRANSPOSIÇÃO -->
-    <div class="td-card td-cifra-card" id="td-cifra-card">
-      <div class="td-card-label">CIFRA ATUAL</div>
-      <div id="td-cifra-info" class="td-cifra-info">
-        <span class="td-cifra-none">Abra uma cifra para ver aqui</span>
+    <!-- 2. CIFRA ENCONTRADA -->
+    <div class="td-card td-song-card" id="td-song-card">
+      <div class="td-card-label-row">
+        <div class="td-card-label">CIFRA IDENTIFICADA</div>
+        <div id="td-song-status" class="td-song-status"></div>
       </div>
-      <div id="td-autotranspose-row" class="td-autotranspose-row" style="display:none;">
-        <div>
-          <div class="td-at-label">Transpor para tom detectado</div>
-          <div class="td-at-sub">Toque para aplicar a transposição manualmente</div>
-        </div>
-        <button id="td-apply-transpose" class="td-apply-btn" onclick="tdApplyTranspose()">APLICAR</button>
+      <div id="td-song-info" class="td-song-info">
+        <span class="td-song-idle">Cante por alguns segundos para identificar a música</span>
       </div>
-    </div>
-
-    <!-- OSCILLOSCOPE -->
-    <div class="td-card td-osc-card">
-      <div class="td-card-label">OSCILOSCÓPIO</div>
-      <div class="td-osc-wrap">
-        <svg id="td-osc-grid" width="100%" height="48" viewBox="0 0 320 48" preserveAspectRatio="none" style="position:absolute;top:0;left:0;">
-          <line x1="0" y1="12" x2="320" y2="12" stroke="#1a1a1a" stroke-width="1"/>
-          <line x1="0" y1="24" x2="320" y2="24" stroke="#1a1a1a" stroke-width="1"/>
-          <line x1="0" y1="36" x2="320" y2="36" stroke="#1a1a1a" stroke-width="1"/>
-          <line x1="80"  y1="0" x2="80"  y2="48" stroke="#1a1a1a" stroke-width="1"/>
-          <line x1="160" y1="0" x2="160" y2="48" stroke="#1a1a1a" stroke-width="1"/>
-          <line x1="240" y1="0" x2="240" y2="48" stroke="#1a1a1a" stroke-width="1"/>
-        </svg>
-        <svg id="td-osc-wave" width="100%" height="48" viewBox="0 0 320 48" preserveAspectRatio="none" style="position:relative;z-index:1;">
-          <polyline id="td-wave-poly" points="0,24 320,24" fill="none" stroke="#10b981" stroke-width="1.5" opacity="0.75"/>
-        </svg>
+      <!-- Cifra preview -->
+      <div id="td-cifra-preview" class="td-cifra-preview" style="display:none;"></div>
+      <!-- Ações -->
+      <div id="td-song-actions" class="td-song-actions" style="display:none;">
+        <button class="td-action-btn td-action-add" id="td-btn-add" onclick="tdAddToRepertoire()">+ REPERTÓRIO</button>
+        <button class="td-action-btn td-action-open" id="td-btn-open" onclick="tdOpenSong()">ABRIR CIFRA</button>
       </div>
     </div>
 
-    <!-- NOTE HISTORY -->
-    <div class="td-card td-hist-card">
-      <div class="td-card-label">SEQUÊNCIA DE NOTAS <span id="td-hist-count" class="td-hist-count"></span></div>
-      <div id="td-hist-bars" class="td-hist-bars">
-        <span class="td-hist-empty">aguardando entrada de áudio...</span>
+    <!-- 3. NOTAS AO VIVO -->
+    <div class="td-card td-notes-card">
+      <div class="td-card-label">NOTAS DETECTADAS</div>
+      <div id="td-notes-row" class="td-notes-row">
+        <span class="td-notes-idle">aguardando áudio...</span>
       </div>
-      <div id="td-hist-chips" class="td-hist-chips"></div>
+      <div id="td-notes-hist" class="td-notes-hist"></div>
     </div>
 
-    <!-- AUTO UPDATE TOGGLE -->
-    <div class="td-card td-auto-card">
-      <div class="td-auto-left">
-        <div class="td-auto-title">AUTO-ATUALIZAR TOM</div>
-        <div class="td-auto-sub">Recalcula o tom a cada 1.2s quando muda</div>
-      </div>
-      <div id="td-auto-toggle" class="td-auto-toggle" onclick="tdToggleAuto()">
-        <div id="td-auto-knob" class="td-auto-knob"></div>
-      </div>
-    </div>
-
-    <div class="td-footnote">Detecção: YIN Algorithm · Tonalidade: Krumhansl-Schmuckler</div>
+    <div class="td-footnote">Identificação: YIN · Tonalidade: Krumhansl-Schmuckler · Música: AudD + DB interna</div>
   </div>
 </div>
 

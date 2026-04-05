@@ -395,7 +395,6 @@ function navTomDetector() {
   if (!isPro()) {
     if (proGate) proGate.style.display = 'flex';
     if (tdBody)  tdBody.style.display  = 'none';
-    // Still show toggle btn as disabled hint
     const btn = $('td-toggle-btn');
     if (btn) { btn.textContent = '▶ INICIAR'; btn.classList.remove('on'); }
     return;
@@ -404,15 +403,14 @@ function navTomDetector() {
   if (proGate) proGate.style.display = 'none';
   if (tdBody)  tdBody.style.display  = 'flex';
 
-  tdUpdateCifraCard();
-  const tog = $('td-auto-toggle');
-  if (tog) tog.classList.toggle('on', tdAuto);
-  // Re-render if already running
   if (tdOn) {
     const badge = $('td-live-badge');
     if (badge) badge.classList.add('visible');
     const btn = $('td-toggle-btn');
     if (btn) { btn.textContent = '⏹ PARAR'; btn.classList.add('on'); }
+    // Re-render current state
+    if (tdDetectedKey) tdRenderKey(tdDetectedKey);
+    tdRenderNotes(tdHist);
   }
 }
 
@@ -611,9 +609,6 @@ function openSong(index) {
   contentArea.scrollTop = 0; scrollPos = 0;
 
   if (role === 'S' && settings.medleyEnabled && isPro()) startMedleyWatcher();
-
-  // Update Tom Detector cifra card if it's open
-  tdUpdateCifraCard();
 }
 
 function fabBackHandler() {
@@ -628,7 +623,6 @@ function backFromSong() {
   showDynamic();
   setView('songs');
   renderSongsList();
-  tdUpdateCifraCard();
 }
 
 function showCifraView() {
@@ -1940,75 +1934,68 @@ const TD_COLORS   = ['#FF6B6B','#FF8E53','#FFD43B','#74C0FC','#38D9A9','#63E6BE'
 const TD_MAJOR_P  = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
 const TD_MINOR_P  = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
 
-let tdOn           = false;
-let tdAuto         = true;
-let tdAudioCtx     = null;
-let tdAnalyser     = null;
-let tdStream       = null;
-let tdRaf          = null;
-let tdKeyInt       = null;
-let tdHistBuf      = [];
-let tdHist         = [];
-let tdDetectedKey  = null;
-let tdCurrentNote  = null;
-let tdVol          = 0;
+let tdOn          = false;
+let tdAudioCtx    = null;
+let tdAnalyser    = null;
+let tdStream      = null;
+let tdRaf         = null;
+let tdKeyInt      = null;
+let tdIdInt       = null;      // identification interval
+let tdHistBuf     = [];
+let tdHist        = [];
+let tdDetectedKey = null;
+let tdFoundSong   = null;      // { id, title, content, originalTone, url } — found song
+let tdIdBusy      = false;     // identification in progress
+let tdRecChunks   = [];
+let tdMediaRec    = null;
+let tdRecTimer    = null;
 
 // ── YIN pitch detection ──
 function tdYinPitch(buf, sr) {
-  const W      = Math.min(buf.length >> 1, 1024);
-  const tauMax = Math.ceil(sr / 60);
-  const tauMin = Math.floor(sr / 1800);
-  const d      = new Float32Array(tauMax + 1);
+  const W = Math.min(buf.length >> 1, 1024);
+  const tauMax = Math.ceil(sr / 60), tauMin = Math.floor(sr / 1800);
+  const d = new Float32Array(tauMax + 1);
   for (let tau = 1; tau <= tauMax; tau++) {
     let s = 0;
-    for (let i = 0; i < W; i++) { const v = buf[i] - buf[i + tau]; s += v * v; }
+    for (let i = 0; i < W; i++) { const v = buf[i] - buf[i+tau]; s += v*v; }
     d[tau] = s;
   }
   const c = new Float32Array(tauMax + 1); c[0] = 1; let sum = 0;
-  for (let tau = 1; tau <= tauMax; tau++) {
-    sum += d[tau]; c[tau] = d[tau] * tau / (sum || 1e-10);
-  }
+  for (let tau = 1; tau <= tauMax; tau++) { sum += d[tau]; c[tau] = d[tau]*tau/(sum||1e-10); }
   let best = -1;
   for (let tau = tauMin; tau < tauMax; tau++) {
-    if (c[tau] < 0.12) {
-      while (tau + 1 < tauMax && c[tau + 1] < c[tau]) tau++;
-      best = tau; break;
-    }
+    if (c[tau] < 0.12) { while (tau+1 < tauMax && c[tau+1] < c[tau]) tau++; best = tau; break; }
   }
   if (best < 0) return -1;
   if (best > 0 && best < tauMax) {
     const a = c[best-1], b = c[best], cc = c[best+1];
-    const den = 2 * (2*b - a - cc);
-    if (Math.abs(den) > 1e-6) best += (a - cc) / den;
+    const den = 2*(2*b-a-cc); if (Math.abs(den) > 1e-6) best += (a-cc)/den;
   }
   return sr / best;
 }
 
 function tdFreqToNote(f) {
   if (f < 65 || f > 2200) return null;
-  const n   = 12 * Math.log2(f / 440) + 69;
-  const r   = Math.round(n);
-  const idx = ((r % 12) + 12) % 12;
-  return { idx, name: TD_NOTES[idx], pt: TD_NOTES_PT[idx], oct: Math.floor(r/12)-1, cents: (n-r)*100, f };
+  const n = 12*Math.log2(f/440)+69, r = Math.round(n), idx = ((r%12)+12)%12;
+  return { idx, name: TD_NOTES[idx], pt: TD_NOTES_PT[idx], oct: Math.floor(r/12)-1, f };
 }
 
 // ── Krumhansl-Schmuckler key detection ──
 function tdDetectKeyFromHist(hist) {
   if (hist.length < 8) return null;
-  const cnt = new Array(12).fill(0);
-  hist.forEach(n => cnt[n]++);
+  const cnt = new Array(12).fill(0); hist.forEach(n => cnt[n]++);
   const corr = (a, b) => {
     const ma = a.reduce((s,v)=>s+v,0)/12, mb = b.reduce((s,v)=>s+v,0)/12;
     let num=0, da=0, db=0;
     for (let i=0;i<12;i++){num+=(a[i]-ma)*(b[i]-mb);da+=(a[i]-ma)**2;db+=(b[i]-mb)**2;}
-    return num / (Math.sqrt(da*db)+1e-10);
+    return num/(Math.sqrt(da*db)+1e-10);
   };
-  let best = { score: -Infinity, i: 0, mode: 'maior' };
+  let best = { score:-Infinity, i:0, mode:'maior' };
   for (let i=0;i<12;i++){
     const rot = Array.from({length:12},(_,j)=>cnt[(j+i)%12]);
-    const maj = corr(rot, TD_MAJOR_P), min = corr(rot, TD_MINOR_P);
-    if (maj > best.score) best = {score:maj, i, mode:'maior'};
-    if (min > best.score) best = {score:min, i, mode:'menor'};
+    const maj = corr(rot,TD_MAJOR_P), min = corr(rot,TD_MINOR_P);
+    if (maj > best.score) best = {score:maj,i,mode:'maior'};
+    if (min > best.score) best = {score:min,i,mode:'menor'};
   }
   return { name:TD_NOTES[best.i], pt:TD_NOTES_PT[best.i], mode:best.mode, conf:Math.round(((best.score+1)/2)*100), i:best.i };
 }
@@ -2017,94 +2004,63 @@ function tdDetectKeyFromHist(hist) {
 async function tdToggle() {
   if (!isPro()) { showToast('✦ Recurso exclusivo Pro'); return; }
   if (tdOn) { tdStopAll(); return; }
-
-  const errEl = $('td-error');
-  if (errEl) errEl.style.display = 'none';
-
+  const errEl = $('td-error'); if (errEl) errEl.style.display = 'none';
   try {
     const s = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation:false, noiseSuppression:false, autoGainControl:false }
+      audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true }
     });
     tdStream = s;
     const ac = new (window.AudioContext || window.webkitAudioContext)();
     tdAudioCtx = ac;
-    const an = ac.createAnalyser();
-    an.fftSize = 4096; an.smoothingTimeConstant = 0.6;
-    tdAnalyser = an;
-    ac.createMediaStreamSource(s).connect(an);
-    tdHistBuf = []; tdHist = [];
+    const an = ac.createAnalyser(); an.fftSize = 4096; an.smoothingTimeConstant = 0.5;
+    tdAnalyser = an; ac.createMediaStreamSource(s).connect(an);
+    tdHistBuf = []; tdHist = []; tdFoundSong = null; tdDetectedKey = null;
     tdOn = true;
-
-    const btn   = $('td-toggle-btn');
-    const badge = $('td-live-badge');
+    const btn = $('td-toggle-btn'), badge = $('td-live-badge');
     if (btn)   { btn.textContent = '⏹ PARAR'; btn.classList.add('on'); }
     if (badge) badge.classList.add('visible');
-
     tdDetectLoop();
     tdStartKeyInterval();
-
-  } catch (e) {
+    tdStartIdentificationCycle();
+  } catch {
     const errEl = $('td-error');
-    if (errEl) {
-      errEl.textContent = 'Permissão de microfone negada. Verifique as configurações do navegador.';
-      errEl.style.display = 'block';
-    }
+    if (errEl) { errEl.textContent = 'Permissão de microfone negada. Verifique as configurações.'; errEl.style.display = 'block'; }
   }
 }
 
 function tdStopAll() {
   tdOn = false;
-  cancelAnimationFrame(tdRaf);
-  clearInterval(tdKeyInt);
+  cancelAnimationFrame(tdRaf); clearInterval(tdKeyInt); clearInterval(tdIdInt);
+  if (tdMediaRec && tdMediaRec.state !== 'inactive') { try { tdMediaRec.stop(); } catch {} }
+  clearTimeout(tdRecTimer);
   try { tdAudioCtx?.close(); } catch {}
   tdStream?.getTracks().forEach(t => t.stop());
-  tdStream = null; tdAudioCtx = null; tdAnalyser = null;
-  tdCurrentNote = null; tdVol = 0; tdDetectedKey = null;
-
-  const btn   = $('td-toggle-btn');
-  const badge = $('td-live-badge');
+  tdStream = null; tdAudioCtx = null; tdAnalyser = null; tdMediaRec = null;
+  tdDetectedKey = null; tdHistBuf = []; tdHist = [];
+  const btn = $('td-toggle-btn'), badge = $('td-live-badge');
   if (btn)   { btn.textContent = '▶ INICIAR'; btn.classList.remove('on'); }
   if (badge) badge.classList.remove('visible');
-
-  tdRenderNote(null);
-  tdRenderKey(null);
-  tdRenderVol(0);
-  const poly = $('td-wave-poly');
-  if (poly) poly.setAttribute('points', '0,28 320,28');
+  tdRenderKey(null); tdRenderNotes([]);
+  const songInfo = $('td-song-info');
+  if (songInfo) songInfo.innerHTML = '<span class="td-song-idle">Cante por alguns segundos para identificar a música</span>';
+  const prev = $('td-cifra-preview'); if (prev) prev.style.display = 'none';
+  const acts = $('td-song-actions'); if (acts) acts.style.display = 'none';
+  const st = $('td-song-status'); if (st) st.textContent = '';
 }
 
-// ── Detection loop ──
+// ── Pitch detection loop ──
 function tdDetectLoop() {
-  const fb   = new Float32Array(tdAnalyser.fftSize);
-  const wb   = new Uint8Array(tdAnalyser.fftSize);
-  const step = Math.floor(tdAnalyser.fftSize / 80);
-
+  const fb = new Float32Array(tdAnalyser.fftSize);
   function frame() {
     if (!tdOn) return;
     tdAnalyser.getFloatTimeDomainData(fb);
-    tdAnalyser.getByteTimeDomainData(wb);
-
-    // Volume
-    let rms = 0;
-    for (let i=0; i<fb.length; i++) rms += fb[i]*fb[i];
-    tdVol = Math.min(1, Math.sqrt(rms / fb.length) * 15);
-    tdRenderVol(tdVol);
-
-    // Waveform
-    const pts = Array.from({length:80}, (_,i) => `${(i/79)*320},${28-(wb[i*step]-128)/128*22}`).join(' ');
-    const poly = $('td-wave-poly');
-    if (poly) poly.setAttribute('points', pts);
-
-    // Pitch
     const f = tdYinPitch(fb, tdAudioCtx.sampleRate);
     if (f > 0) {
       const n = tdFreqToNote(f);
       if (n) {
-        tdCurrentNote = n;
-        tdHistBuf = [...tdHistBuf.slice(-200), n.idx];
-        tdHist    = [...tdHist.slice(-60), n.idx];
-        tdRenderNote(n);
-        tdRenderHist();
+        tdHistBuf = [...tdHistBuf.slice(-300), n.idx];
+        tdHist    = [...tdHist.slice(-40), n.idx];
+        tdRenderNotes(tdHist);
       }
     }
     tdRaf = requestAnimationFrame(frame);
@@ -2112,197 +2068,338 @@ function tdDetectLoop() {
   tdRaf = requestAnimationFrame(frame);
 }
 
+// ── Key detection interval ──
 function tdStartKeyInterval() {
   clearInterval(tdKeyInt);
   tdKeyInt = setInterval(() => {
-    if (!tdAuto || !tdOn) return;
-    if (tdHistBuf.length >= 8) {
-      tdDetectedKey = tdDetectKeyFromHist(tdHistBuf.slice(-80));
-      tdRenderKey(tdDetectedKey);
-      tdUpdateCifraCard();
+    if (!tdOn || tdHistBuf.length < 8) return;
+    const k = tdDetectKeyFromHist(tdHistBuf.slice(-120));
+    if (k) {
+      tdDetectedKey = k;
+      tdRenderKey(k);
+      // Auto-transpose open song if key changed significantly
+      tdAutoTransposeIfNeeded(k);
     }
-  }, 1200);
+  }, 1500);
 }
 
-// ── Toggle auto update ──
-function tdToggleAuto() {
-  tdAuto = !tdAuto;
-  const tog = $('td-auto-toggle');
-  if (tog) tog.classList.toggle('on', tdAuto);
+// ── Auto-transpose open cifra when detected key differs ──
+function tdAutoTransposeIfNeeded(k) {
+  if (!musicaAtivaId) return;
+  if (k.conf < 55) return; // only act on confident detections
+  if (k.name === currentNote) return;
+  selectTone(k.name);
 }
 
-// ── Render helpers ──
-function tdRenderNote(n) {
-  const disp = $('td-note-display');
-  const sub  = $('td-note-sub');
-  const card = $('td-note-card');
+// ── Song identification cycle: every 12s record 8s + identify ──
+function tdStartIdentificationCycle() {
+  clearInterval(tdIdInt);
+  // First attempt after 8 seconds
+  setTimeout(() => { if (tdOn) tdRunIdentification(); }, 8000);
+  // Then every 20s
+  tdIdInt = setInterval(() => { if (tdOn && !tdIdBusy) tdRunIdentification(); }, 20000);
+}
 
-  if (!n) {
-    if (disp) { disp.textContent = '—'; disp.classList.remove('lit'); disp.style.color = ''; }
-    if (sub)  sub.textContent = '';
-    if (card) { card.classList.remove('lit'); card.style.borderColor = ''; }
-    tdRenderTuner(null);
-    return;
+async function tdRunIdentification() {
+  if (tdIdBusy || !tdOn || !tdStream) return;
+  tdIdBusy = true;
+  const st = $('td-song-status'); if (st) { st.textContent = '⟳ identificando...'; st.style.color = 'var(--text-dim)'; }
+
+  try {
+    const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
+    tdRecChunks = [];
+    const rec = new MediaRecorder(tdStream, { mimeType: mime });
+    tdMediaRec = rec;
+    rec.ondataavailable = e => { if (e.data.size > 0) tdRecChunks.push(e.data); };
+
+    await new Promise((resolve, reject) => {
+      rec.onstop = resolve;
+      rec.onerror = reject;
+      rec.start(100);
+      tdRecTimer = setTimeout(() => { try { rec.stop(); } catch {} }, 8000);
+    });
+
+    const blob = new Blob(tdRecChunks, { type: mime });
+
+    // 1. Try internal DB first (search by detected key)
+    const localMatch = tdSearchLocalDB();
+    if (localMatch) {
+      tdFoundSong = localMatch;
+      tdRenderFoundSong(localMatch, 'local');
+      tdIdBusy = false;
+      return;
+    }
+
+    // 2. Try AudD API
+    const settings_audd = localStorage.getItem('td_audd_key') || '';
+    if (settings_audd) {
+      const form = new FormData();
+      form.append('api_token', settings_audd);
+      form.append('audio', blob, 'rec.webm');
+      form.append('return', 'apple_music,spotify');
+      const r = await fetch('https://api.audd.io/', { method:'POST', body:form });
+      const d = await r.json();
+      if (d.status === 'success' && d.result) {
+        const auddResult = d.result;
+        // Search internal DB for this title
+        const internalMatch = tdFindInDB(auddResult.title, auddResult.artist);
+        if (internalMatch) {
+          tdFoundSong = internalMatch;
+          tdRenderFoundSong(internalMatch, 'local');
+          tdIdBusy = false; return;
+        }
+        // Fetch from CifraClub
+        await tdFetchFromCifraClub(auddResult.title, auddResult.artist);
+        tdIdBusy = false; return;
+      }
+    }
+
+    // 3. Fallback: search DB by detected key/tone
+    if (tdDetectedKey) {
+      const keyMatch = tdSearchLocalDBByKey(tdDetectedKey.name);
+      if (keyMatch) {
+        tdFoundSong = keyMatch;
+        tdRenderFoundSong(keyMatch, 'local');
+        tdIdBusy = false; return;
+      }
+    }
+
+    if (st) { st.textContent = ''; }
+
+  } catch {
+    if (st) st.textContent = '';
   }
-  const col = TD_COLORS[n.idx];
-  if (disp) { disp.textContent = n.pt; disp.classList.add('lit'); disp.style.color = col; }
-  if (sub)  sub.textContent = `${n.name}${n.oct} · ${n.f.toFixed(1)} Hz`;
-  if (card) { card.classList.add('lit'); card.style.borderColor = col + '55'; }
-  tdRenderTuner(n);
+  tdIdBusy = false;
 }
 
+// ── Search internal DB: exact match by current key ──
+function tdSearchLocalDB() {
+  if (!tdDetectedKey || db.biblioteca.length === 0) return null;
+  // First check already open song tone match
+  if (musicaAtivaId) {
+    const open = db.biblioteca.find(b => b.id === musicaAtivaId);
+    if (open) return open;
+  }
+  return null;
+}
+
+function tdSearchLocalDBByKey(keyName) {
+  return db.biblioteca.find(m => (m.originalTone || 'C') === keyName || (m.savedTone) === keyName) || null;
+}
+
+function tdFindInDB(title, artist) {
+  if (!title) return null;
+  const t = title.toLowerCase().trim();
+  const a = (artist || '').toLowerCase().trim();
+  return db.biblioteca.find(m => {
+    const mt = m.title.toLowerCase();
+    return mt === t || mt.includes(t) || t.includes(mt) ||
+      (a && mt.includes(a.split(' ')[0]));
+  }) || null;
+}
+
+// ── Fetch from our server (same as importLink) then fallback to CifraClub pattern ──
+async function tdFetchFromCifraClub(title, artist) {
+  const st = $('td-song-status');
+  if (st) { st.textContent = '⟳ buscando cifra...'; st.style.color = 'var(--text-dim)'; }
+
+  // Build CifraClub URL from artist + title
+  const slug = s => s.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9\s-]/g,'').trim().replace(/\s+/g,'-');
+
+  const ccUrl = `https://www.cifraclub.com.br/${slug(artist)}/${slug(title)}/`;
+
+  try {
+    // Try our server proxy first
+    const res = await fetch(`${API}/get-cifra?url=${encodeURIComponent(ccUrl)}`);
+    const data = await res.json();
+    if (!data.cifra) throw new Error('no cifra');
+
+    const plain = htmlParaTexto(data.cifra);
+    const detectedTone  = detectKey(plain);
+    const communityTone = await buscarTomComunitario(ccUrl);
+    const originalTone  = communityTone || detectedTone;
+    const genre         = normalizeGenre(data.genero || '');
+    const id            = Date.now().toString();
+    const songObj       = { id, url: ccUrl, title: data.titulo || title, content: plain, originalTone, genre };
+
+    // Save to biblioteca
+    db.biblioteca.push(songObj);
+    salvarDB();
+
+    tdFoundSong = songObj;
+    tdRenderFoundSong(songObj, 'fetched');
+
+  } catch {
+    // Try our search endpoint
+    try {
+      const res2 = await fetch(`${API}/search?q=${encodeURIComponent(title + ' ' + artist)}&page=1`);
+      const data2 = await res2.json();
+      if (data2.results && data2.results.length > 0) {
+        const r = data2.results[0];
+        const res3 = await fetch(`${API}/get-cifra?url=${encodeURIComponent(r.url)}`);
+        const data3 = await res3.json();
+        if (!data3.cifra) throw new Error('no cifra');
+        const plain = htmlParaTexto(data3.cifra);
+        const originalTone = detectKey(plain);
+        const id = Date.now().toString();
+        const songObj = { id, url: r.url, title: data3.titulo || r.title || title, content: plain, originalTone, genre: null };
+        db.biblioteca.push(songObj); salvarDB();
+        tdFoundSong = songObj;
+        tdRenderFoundSong(songObj, 'fetched');
+      } else {
+        if (st) st.textContent = '';
+      }
+    } catch {
+      if (st) st.textContent = '';
+    }
+  }
+}
+
+// ── Render found song ──
+function tdRenderFoundSong(song, source) {
+  const infoEl  = $('td-song-info');
+  const prevEl  = $('td-cifra-preview');
+  const actsEl  = $('td-song-actions');
+  const st      = $('td-song-status');
+
+  if (!infoEl) return;
+
+  if (st) {
+    st.textContent = source === 'local' ? '✓ na sua biblioteca' : '✓ cifra encontrada';
+    st.style.color = 'var(--accent2)';
+  }
+
+  const tone = song.originalTone || 'C';
+  infoEl.innerHTML = `
+    <div class="td-song-title">${song.title}</div>
+    <div class="td-song-meta">
+      <span class="td-song-tone-badge">${tone}</span>
+      ${song.url ? `<span class="td-song-src">CifraClub</span>` : '<span class="td-song-src">Biblioteca</span>'}
+    </div>`;
+
+  // Preview first 12 lines of cifra
+  if (prevEl && song.content) {
+    const lines = song.content.split('\n').slice(0, 14).join('\n');
+    prevEl.innerHTML = renderFromPlainText(lines);
+    prevEl.style.display = 'block';
+  }
+
+  if (actsEl) actsEl.style.display = 'flex';
+
+  // Auto-transpose if detected key differs from song key
+  if (tdDetectedKey && tdDetectedKey.name !== tone) {
+    selectToneForDetector(song, tdDetectedKey.name);
+  }
+}
+
+// Transpose the found song to the detected key and display it
+function selectToneForDetector(song, targetKey) {
+  const diff = notes.indexOf(targetKey) - notes.indexOf(song.originalTone || 'C');
+  if (diff === 0) return;
+  const transposed = transposeText(song.content, diff);
+  const prevEl = $('td-cifra-preview');
+  if (prevEl) {
+    const lines = transposed.split('\n').slice(0, 14).join('\n');
+    prevEl.innerHTML = renderFromPlainText(lines);
+  }
+}
+
+// ── Add found song to active folder ──
+function tdAddToRepertoire() {
+  if (!tdFoundSong) return;
+  if (!pastaAtiva) {
+    const pastas = Object.keys(db.pastas);
+    if (!pastas.length) { showToast('Crie uma pasta primeiro'); return; }
+    // Add to first available folder
+    const pasta = pastas[0];
+    if (!db.pastas[pasta].includes(tdFoundSong.id)) {
+      db.pastas[pasta].push(tdFoundSong.id);
+      salvarDB();
+    }
+    showToast(`Adicionado em "${pasta}" ✓`);
+  } else {
+    if (!db.pastas[pastaAtiva].includes(tdFoundSong.id)) {
+      db.pastas[pastaAtiva].push(tdFoundSong.id);
+      salvarDB();
+    }
+    showToast('Adicionado ao repertório ✓');
+  }
+  const btn = $('td-btn-add'); if (btn) { btn.textContent = '✓ ADICIONADO'; btn.disabled = true; }
+}
+
+// ── Open found song as cifra ──
+function tdOpenSong() {
+  if (!tdFoundSong) return;
+  // Make sure it's in some folder
+  const pastas = Object.keys(db.pastas);
+  if (!pastas.length) { showToast('Crie uma pasta primeiro'); return; }
+  const pasta = pastaAtiva || pastas[0];
+  if (!db.pastas[pasta].includes(tdFoundSong.id)) {
+    db.pastas[pasta].push(tdFoundSong.id);
+    salvarDB();
+  }
+  pastaAtiva = pasta;
+  const idx = db.pastas[pasta].indexOf(tdFoundSong.id);
+  openSong(idx);
+}
+
+// ── Render key card ──
 function tdRenderKey(k) {
-  const disp    = $('td-key-display');
-  const confRow = $('td-key-conf-row');
-  const fill    = $('td-key-conf-fill');
-  const pct     = $('td-key-conf-pct');
-  const card    = $('td-key-card');
+  const disp     = $('td-key-display');
+  const confWrap = $('td-key-conf-wrap');
+  const fill     = $('td-key-conf-fill');
+  const pct      = $('td-key-conf-pct');
+  const card     = $('td-key-card');
+  const sub      = $('td-key-sub');
 
   if (!k) {
-    if (disp) { disp.textContent = 'cante para detectar...'; disp.classList.remove('lit'); disp.style.color = ''; }
-    if (confRow) confRow.style.display = 'none';
-    if (card) { card.classList.remove('lit'); card.style.borderColor = ''; }
+    if (disp) { disp.textContent = 'cante para detectar...'; disp.className = 'td-key-display'; disp.style.color = ''; }
+    if (confWrap) confWrap.style.display = 'none';
+    if (card) { card.style.borderColor = ''; }
+    if (sub) sub.textContent = '';
     return;
   }
   const col = TD_COLORS[k.i];
-  if (disp) { disp.textContent = `${k.pt} ${k.mode}`; disp.classList.add('lit'); disp.style.color = col; }
-  if (confRow) confRow.style.display = 'flex';
+  if (disp) { disp.textContent = `${k.name} ${k.mode}`; disp.style.color = col; }
+  if (confWrap) confWrap.style.display = 'flex';
   if (fill) fill.style.width = `${k.conf}%`;
   if (pct)  pct.textContent = `${k.conf}%`;
-  if (card) { card.classList.add('lit'); card.style.borderColor = col + '40'; }
+  if (card) card.style.borderColor = col + '50';
+  if (sub) sub.textContent = k.pt + ' ' + k.mode;
 }
 
-function tdRenderVol(v) {
-  const fill = $('td-vol-fill');
-  if (!fill) return;
-  fill.style.height = `${v * 100}%`;
-  fill.classList.toggle('loud', v > 0.8);
-}
+// ── Render live notes ──
+function tdRenderNotes(hist) {
+  const row   = $('td-notes-row');
+  const histo = $('td-notes-hist');
+  if (!row) return;
 
-function tdRenderTuner(n) {
-  const needle     = $('td-needle');
-  const dot        = $('td-needle-dot');
-  const arc        = $('td-active-arc');
-  const centsLbl   = $('td-cents-lbl');
-  const tuneStatus = $('td-tune-status');
-  const intArc     = $('td-intune-arc');
-  if (!needle) return;
-
-  if (!n) {
-    needle.setAttribute('x2', '90'); needle.setAttribute('y2', '25');
-    needle.setAttribute('stroke', '#333');
-    if (dot) dot.setAttribute('fill', '#333');
-    if (arc) arc.setAttribute('opacity', '0');
-    if (centsLbl) centsLbl.textContent = '— ¢';
-    if (intArc)   intArc.setAttribute('opacity', '0.15');
-    if (tuneStatus) { tuneStatus.textContent = 'aguardando'; tuneStatus.className = 'td-tune-status dim'; }
+  if (!hist || hist.length === 0) {
+    row.innerHTML = '<span class="td-notes-idle">aguardando áudio...</span>';
+    if (histo) histo.innerHTML = '';
     return;
   }
 
-  const deg = Math.max(-45, Math.min(45, n.cents / 50 * 45));
-  const nx  = 90 + 65 * Math.cos((deg - 90) * Math.PI / 180);
-  const ny  = 90 + 65 * Math.sin((deg - 90) * Math.PI / 180);
-  const col = TD_COLORS[n.idx];
-  const inTune = Math.abs(n.cents) < 10;
+  // Current note = last in hist
+  const cur = hist[hist.length - 1];
+  const col = TD_COLORS[cur];
 
-  needle.setAttribute('x2', nx.toFixed(2));
-  needle.setAttribute('y2', ny.toFixed(2));
-  needle.setAttribute('stroke', inTune ? '#10b981' : col);
-  if (dot) dot.setAttribute('fill', col);
+  row.innerHTML = `
+    <div class="td-note-big" style="color:${col};text-shadow:0 0 20px ${col}40">${TD_NOTES_PT[cur]}</div>
+    <div class="td-note-name" style="color:${col}99">${TD_NOTES[cur]}</div>`;
 
-  if (arc) {
-    const d = deg >= 0
-      ? `M 90,20 A 70 70 0 0 1 ${nx.toFixed(2)},${ny.toFixed(2)}`
-      : `M ${nx.toFixed(2)},${ny.toFixed(2)} A 70 70 0 0 1 90,20`;
-    arc.setAttribute('d', d);
-    arc.setAttribute('stroke', inTune ? '#10b981' : col);
-    arc.setAttribute('opacity', '0.5');
+  // History bars
+  if (histo) {
+    const recent = hist.slice(-32);
+    histo.innerHTML = recent.map((n, i, a) => {
+      const h  = 10 + (n % 3) * 5;
+      const op = 0.1 + (i / a.length) * 0.9;
+      const glow = i === a.length-1 ? `box-shadow:0 0 6px ${TD_COLORS[n]};` : '';
+      return `<div class="td-note-bar" style="height:${h}px;background:${TD_COLORS[n]};opacity:${op};${glow}"></div>`;
+    }).join('');
   }
-
-  if (centsLbl) centsLbl.textContent = `${n.cents > 0 ? '+' : ''}${n.cents.toFixed(0)}¢`;
-  if (intArc)   intArc.setAttribute('opacity', inTune ? '0.8' : '0.15');
-
-  if (tuneStatus) {
-    if (inTune) {
-      tuneStatus.textContent = '✓ AFINADO';
-      tuneStatus.className   = 'td-tune-status in-tune';
-    } else {
-      tuneStatus.textContent = n.cents > 0 ? '▲ muito agudo' : '▼ muito grave';
-      tuneStatus.className   = 'td-tune-status';
-    }
-  }
-}
-
-function tdRenderHist() {
-  const bars  = $('td-hist-bars');
-  const chips = $('td-hist-chips');
-  const count = $('td-hist-count');
-  if (!bars) return;
-
-  if (tdHist.length === 0) {
-    bars.innerHTML = '<span class="td-hist-empty">aguardando entrada de áudio...</span>';
-    if (chips) chips.innerHTML = '';
-    return;
-  }
-  if (count) count.textContent = `(${tdHist.length})`;
-
-  const recent = tdHist.slice(-55);
-  bars.innerHTML = recent.map((n, i, a) => {
-    const h   = 18 + (n % 3) * 6;
-    const op  = 0.15 + (i / a.length) * 0.85;
-    const glow = i === a.length - 1 ? `filter:drop-shadow(0 0 4px ${TD_COLORS[n]});` : '';
-    return `<div class="td-hist-bar" style="height:${h}px;background:${TD_COLORS[n]};opacity:${op};${glow}" title="${TD_NOTES_PT[n]}"></div>`;
-  }).join('');
-
-  if (chips) {
-    const unique = [...new Set(tdHist.slice(-30))];
-    chips.innerHTML = unique.map(n =>
-      `<span class="td-hist-chip" style="background:${TD_COLORS[n]}18;border-color:${TD_COLORS[n]}40;color:${TD_COLORS[n]}">${TD_NOTES_PT[n]}</span>`
-    ).join('');
-  }
-}
-
-// ── Cifra card ──
-function tdUpdateCifraCard() {
-  const infoEl   = $('td-cifra-info');
-  const transRow = $('td-autotranspose-row');
-  if (!infoEl) return;
-
-  if (!musicaAtivaId) {
-    infoEl.innerHTML = '<span class="td-cifra-none">Abra uma cifra para ver aqui</span>';
-    if (transRow) transRow.style.display = 'none';
-    return;
-  }
-
-  const m = db.biblioteca.find(b => b.id === musicaAtivaId);
-  if (!m) {
-    infoEl.innerHTML = '<span class="td-cifra-none">Abra uma cifra para ver aqui</span>';
-    if (transRow) transRow.style.display = 'none';
-    return;
-  }
-
-  let html = `<span class="td-cifra-title">${m.title}</span><span class="td-cifra-tone-badge">${currentNote}</span>`;
-  if (tdDetectedKey) {
-    html += `<span class="td-cifra-arrow">→</span><span class="td-cifra-tone-target">${tdDetectedKey.name}</span>`;
-    if (transRow) {
-      transRow.style.display = 'flex';
-      const applyBtn = $('td-apply-transpose');
-      if (applyBtn) applyBtn.disabled = (tdDetectedKey.name === currentNote);
-    }
-  } else {
-    if (transRow) transRow.style.display = 'none';
-  }
-  infoEl.innerHTML = html;
-}
-
-// ── Apply transpose from detected key ──
-function tdApplyTranspose() {
-  if (!isPro()) { showToast('✦ Recurso exclusivo Pro'); return; }
-  if (!tdDetectedKey) { showToast('Detecte um tom primeiro'); return; }
-  if (!musicaAtivaId) { showToast('Nenhuma cifra aberta'); return; }
-  selectTone(tdDetectedKey.name);
-  showToast(`Tom ajustado para ${tdDetectedKey.name} ✓`);
-  tdUpdateCifraCard();
 }
 
 // ════════════════════════════════════
