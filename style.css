@@ -1156,7 +1156,7 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
 
 /* 1. Key card */
 .td-key-main-row { display: flex; align-items: center; gap: 14px; }
-.td-key-display { font-family: var(--font-mono); font-size: 40px; font-weight: 900; color: var(--text-muted); line-height: 1; transition: color 0.3s, text-shadow 0.3s; flex-shrink: 0; }
+.td-key-display { font-family: var(--font-mono); font-size: 25px; font-weight: 900; color: var(--text-muted); line-height: 1; transition: color 0.3s, text-shadow 0.3s; flex-shrink: 0; }
 .td-key-conf-wrap { flex: 1; display: flex; align-items: center; gap: 8px; }
 .td-key-conf-bar { flex: 1; height: 4px; background: var(--border); border-radius: 2px; }
 .td-key-conf-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; transition: width 0.7s ease; }
