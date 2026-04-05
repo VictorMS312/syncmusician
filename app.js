@@ -573,12 +573,14 @@ function setMusicGenre(mId, genreId) {
   showToast(g ? `Gênero: ${g.emoji} ${g.label}` : 'Gênero removido');
 }
 
-function openSong(index) {
+function openSong(index, fromDetector) {
   musicaAtivaIndex = index;
   const mId    = db.pastas[pastaAtiva][index];
   musicaAtivaId  = mId;
   const musica = db.biblioteca.find(b => b.id === mId);
   if (!musica) return;
+  // Only allow auto-transpose if explicitly called from detector
+  if (!fromDetector) tdOpenedFromDetector = false;
 
   originalText = musica.content;
   baseNote     = musica.originalTone || 'C';
@@ -620,6 +622,7 @@ function backFromSong() {
   hideAllPanels(); hideMedley(); stopScroll(); stopMedleyWatcher();
   musicaAtivaId    = null;
   musicaAtivaIndex = -1;
+  tdOpenedFromDetector = false;
   showDynamic();
   setView('songs');
   renderSongsList();
@@ -1934,21 +1937,23 @@ const TD_COLORS   = ['#FF6B6B','#FF8E53','#FFD43B','#74C0FC','#38D9A9','#63E6BE'
 const TD_MAJOR_P  = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
 const TD_MINOR_P  = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
 
-let tdOn          = false;
-let tdAudioCtx    = null;
-let tdAnalyser    = null;
-let tdStream      = null;
-let tdRaf         = null;
-let tdKeyInt      = null;
-let tdIdInt       = null;      // identification interval
-let tdHistBuf     = [];
-let tdHist        = [];
-let tdDetectedKey = null;
-let tdFoundSong   = null;      // { id, title, content, originalTone, url } — found song
-let tdIdBusy      = false;     // identification in progress
-let tdRecChunks   = [];
-let tdMediaRec    = null;
-let tdRecTimer    = null;
+let tdOn           = false;
+let tdAudioCtx     = null;
+let tdAnalyser     = null;
+let tdStream       = null;
+let tdRaf          = null;
+let tdKeyInt       = null;
+let tdIdInt        = null;
+let tdHistBuf      = [];
+let tdHist         = [];
+let tdDetectedKey  = null;
+let tdFoundSong    = null;
+let tdIdBusy       = false;
+let tdRecChunks    = [];
+let tdMediaRec     = null;
+let tdRecTimer     = null;
+// flag: song was opened via the Detector (auto-transpose allowed on that cifra)
+let tdOpenedFromDetector = false;
 
 // ── YIN pitch detection ──
 function tdYinPitch(buf, sr) {
@@ -2048,7 +2053,7 @@ function tdStopAll() {
   const st = $('td-song-status'); if (st) st.textContent = '';
 }
 
-// ── Pitch detection loop ──
+// ── Pitch detection loop — only updates notes panel on detector screen ──
 function tdDetectLoop() {
   const fb = new Float32Array(tdAnalyser.fftSize);
   function frame() {
@@ -2060,7 +2065,10 @@ function tdDetectLoop() {
       if (n) {
         tdHistBuf = [...tdHistBuf.slice(-300), n.idx];
         tdHist    = [...tdHist.slice(-40), n.idx];
-        tdRenderNotes(tdHist);
+        // Only update notes display on the detector screen
+        if ($('screen-tomdetector') && $('screen-tomdetector').classList.contains('active')) {
+          tdRenderNotes(tdHist);
+        }
       }
     }
     tdRaf = requestAnimationFrame(frame);
@@ -2074,55 +2082,37 @@ function tdStartKeyInterval() {
   tdKeyInt = setInterval(() => {
     if (!tdOn || tdHistBuf.length < 8) return;
     const k = tdDetectKeyFromHist(tdHistBuf.slice(-120));
-    if (k) {
-      tdDetectedKey = k;
+    if (!k) return;
+    tdDetectedKey = k;
+    // Only update key display when on detector screen
+    if ($('screen-tomdetector') && $('screen-tomdetector').classList.contains('active')) {
       tdRenderKey(k);
-      // Auto-transpose open song if key changed significantly
-      tdAutoTransposeIfNeeded(k);
+    }
+    // Auto-transpose: only if currently on the detector screen AND song was opened via detector
+    if (tdOpenedFromDetector && musicaAtivaId && k.conf >= 55 && k.name !== currentNote) {
+      selectTone(k.name);
     }
   }, 1500);
 }
 
-// ── Auto-transpose open cifra when detected key differs ──
-function tdAutoTransposeIfNeeded(k) {
-  if (!musicaAtivaId) return;
-  if (k.conf < 55) return; // only act on confident detections
-  if (k.name === currentNote) return;
-  selectTone(k.name);
-}
-
-// ── Song identification cycle: every 12s record 8s + identify ──
+// ── Song identification cycle: record 8s, search DB by note pattern, then AudD, then CifraClub ──
 function tdStartIdentificationCycle() {
   clearInterval(tdIdInt);
-  // First attempt after 8 seconds
-  setTimeout(() => { if (tdOn) tdRunIdentification(); }, 8000);
-  // Then every 20s
-  tdIdInt = setInterval(() => { if (tdOn && !tdIdBusy) tdRunIdentification(); }, 20000);
+  // First attempt after 6 seconds of listening
+  setTimeout(() => { if (tdOn) tdRunIdentification(); }, 6000);
+  // Re-try every 18s if no song found yet
+  tdIdInt = setInterval(() => { if (tdOn && !tdIdBusy && !tdFoundSong) tdRunIdentification(); }, 18000);
 }
 
 async function tdRunIdentification() {
   if (tdIdBusy || !tdOn || !tdStream) return;
   tdIdBusy = true;
-  const st = $('td-song-status'); if (st) { st.textContent = '⟳ identificando...'; st.style.color = 'var(--text-dim)'; }
+  const st = $('td-song-status');
+  if (st) { st.textContent = '⟳ identificando...'; st.style.color = 'var(--text-dim)'; }
 
   try {
-    const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
-    tdRecChunks = [];
-    const rec = new MediaRecorder(tdStream, { mimeType: mime });
-    tdMediaRec = rec;
-    rec.ondataavailable = e => { if (e.data.size > 0) tdRecChunks.push(e.data); };
-
-    await new Promise((resolve, reject) => {
-      rec.onstop = resolve;
-      rec.onerror = reject;
-      rec.start(100);
-      tdRecTimer = setTimeout(() => { try { rec.stop(); } catch {} }, 8000);
-    });
-
-    const blob = new Blob(tdRecChunks, { type: mime });
-
-    // 1. Try internal DB first (search by detected key)
-    const localMatch = tdSearchLocalDB();
+    // STEP 1: Search internal DB by note histogram similarity (lyrics/melody match)
+    const localMatch = tdSearchLocalDBByNotePattern();
     if (localMatch) {
       tdFoundSong = localMatch;
       tdRenderFoundSong(localMatch, 'local');
@@ -2130,61 +2120,106 @@ async function tdRunIdentification() {
       return;
     }
 
-    // 2. Try AudD API
-    const settings_audd = localStorage.getItem('td_audd_key') || '';
-    if (settings_audd) {
+    // STEP 2: Record 8 seconds of audio for AudD
+    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
+    tdRecChunks = [];
+    const rec = new MediaRecorder(tdStream, { mimeType: mime });
+    tdMediaRec = rec;
+    rec.ondataavailable = e => { if (e.data.size > 0) tdRecChunks.push(e.data); };
+
+    await new Promise((resolve) => {
+      rec.onstop = resolve;
+      rec.onerror = resolve;
+      rec.start(200);
+      tdRecTimer = setTimeout(() => { try { if (rec.state !== 'inactive') rec.stop(); } catch {} }, 8000);
+    });
+
+    const blob = new Blob(tdRecChunks, { type: mime });
+
+    // STEP 3: Try AudD API if key is configured
+    const auddKey = localStorage.getItem('td_audd_key') || '';
+    if (auddKey && blob.size > 1000) {
       const form = new FormData();
-      form.append('api_token', settings_audd);
+      form.append('api_token', auddKey);
       form.append('audio', blob, 'rec.webm');
-      form.append('return', 'apple_music,spotify');
-      const r = await fetch('https://api.audd.io/', { method:'POST', body:form });
-      const d = await r.json();
-      if (d.status === 'success' && d.result) {
-        const auddResult = d.result;
-        // Search internal DB for this title
-        const internalMatch = tdFindInDB(auddResult.title, auddResult.artist);
-        if (internalMatch) {
-          tdFoundSong = internalMatch;
-          tdRenderFoundSong(internalMatch, 'local');
+      form.append('return', 'spotify');
+      try {
+        const r = await fetch('https://api.audd.io/', { method:'POST', body:form });
+        const d = await r.json();
+        if (d.status === 'success' && d.result) {
+          const title  = d.result.title  || '';
+          const artist = d.result.artist || '';
+          // Search internal DB first
+          const internalMatch = tdFindInDB(title, artist);
+          if (internalMatch) {
+            tdFoundSong = internalMatch;
+            tdRenderFoundSong(internalMatch, 'local');
+            tdIdBusy = false; return;
+          }
+          // Fetch from our server / CifraClub
+          await tdFetchCifra(title, artist);
           tdIdBusy = false; return;
         }
-        // Fetch from CifraClub
-        await tdFetchFromCifraClub(auddResult.title, auddResult.artist);
-        tdIdBusy = false; return;
-      }
+      } catch { /* AudD failed, continue */ }
     }
 
-    // 3. Fallback: search DB by detected key/tone
+    // STEP 4: Fallback — search our server by detected key + note fingerprint
     if (tdDetectedKey) {
-      const keyMatch = tdSearchLocalDBByKey(tdDetectedKey.name);
-      if (keyMatch) {
-        tdFoundSong = keyMatch;
-        tdRenderFoundSong(keyMatch, 'local');
-        tdIdBusy = false; return;
-      }
+      await tdSearchServerByKey(tdDetectedKey.name);
     }
 
-    if (st) { st.textContent = ''; }
+  } catch { /* silent */ }
 
-  } catch {
-    if (st) st.textContent = '';
-  }
+  if (st && st.textContent.includes('⟳')) st.textContent = '';
   tdIdBusy = false;
 }
 
-// ── Search internal DB: exact match by current key ──
-function tdSearchLocalDB() {
+// ── Search internal DB by note pattern (chromagram similarity) ──
+function tdSearchLocalDBByNotePattern() {
   if (!tdDetectedKey || db.biblioteca.length === 0) return null;
-  // First check already open song tone match
-  if (musicaAtivaId) {
-    const open = db.biblioteca.find(b => b.id === musicaAtivaId);
-    if (open) return open;
-  }
-  return null;
-}
+  const key = tdDetectedKey.name;
+  const conf = tdDetectedKey.conf;
+  if (conf < 45) return null;
 
-function tdSearchLocalDBByKey(keyName) {
-  return db.biblioteca.find(m => (m.originalTone || 'C') === keyName || (m.savedTone) === keyName) || null;
+  // Build chromagram from recent history
+  const hist = tdHistBuf.slice(-120);
+  const cnt  = new Array(12).fill(0); hist.forEach(n => cnt[n]++);
+  const total = hist.length || 1;
+  const chroma = cnt.map(c => c / total);
+
+  let best = null, bestScore = 0;
+  for (const m of db.biblioteca) {
+    if (!m.content) continue;
+    // Extract chords from content and build its chromagram
+    const mChords = [];
+    m.content.split('\n').forEach(line => {
+      if (!isChordLine(line)) return;
+      const ms = line.match(/[A-G][#b]?/g) || [];
+      ms.forEach(ch => {
+        const norm = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[ch] || ch;
+        const idx  = notes.indexOf(norm);
+        if (idx !== -1) mChords.push(idx);
+      });
+    });
+    if (mChords.length === 0) continue;
+    const mCnt = new Array(12).fill(0); mChords.forEach(n => mCnt[n]++);
+    const mTotal = mChords.length;
+    const mChroma = mCnt.map(c => c / mTotal);
+
+    // Cosine similarity
+    let dot=0, na=0, nb=0;
+    for (let i=0;i<12;i++){dot+=chroma[i]*mChroma[i];na+=chroma[i]**2;nb+=mChroma[i]**2;}
+    const sim = dot / (Math.sqrt(na)*Math.sqrt(nb)+1e-10);
+
+    // Bonus for matching key
+    const keyBonus = ((m.originalTone||'C') === key || (m.savedTone) === key) ? 0.25 : 0;
+    const score = sim + keyBonus;
+
+    if (score > bestScore && score > 0.55) { bestScore = score; best = m; }
+  }
+  return best;
 }
 
 function tdFindInDB(title, artist) {
@@ -2194,80 +2229,83 @@ function tdFindInDB(title, artist) {
   return db.biblioteca.find(m => {
     const mt = m.title.toLowerCase();
     return mt === t || mt.includes(t) || t.includes(mt) ||
-      (a && mt.includes(a.split(' ')[0]));
+      (a && (mt.includes(a.split(' ')[0]) || a.includes(mt.split(' ')[0])));
   }) || null;
 }
 
-// ── Fetch from our server (same as importLink) then fallback to CifraClub pattern ──
-async function tdFetchFromCifraClub(title, artist) {
+// ── Fetch cifra from our server, fallback to CifraClub URL pattern ──
+async function tdFetchCifra(title, artist) {
   const st = $('td-song-status');
   if (st) { st.textContent = '⟳ buscando cifra...'; st.style.color = 'var(--text-dim)'; }
 
-  // Build CifraClub URL from artist + title
-  const slug = s => s.toLowerCase()
+  const slug = s => (s||'').toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .replace(/[^a-z0-9\s-]/g,'').trim().replace(/\s+/g,'-');
 
-  const ccUrl = `https://www.cifraclub.com.br/${slug(artist)}/${slug(title)}/`;
-
+  // Try search endpoint first
   try {
-    // Try our server proxy first
-    const res = await fetch(`${API}/get-cifra?url=${encodeURIComponent(ccUrl)}`);
+    const res = await fetch(`${API}/search?q=${encodeURIComponent(title + ' ' + artist)}&page=1`);
+    const data = await res.json();
+    if (data.results && data.results.length > 0) {
+      const r = data.results[0];
+      // Check DB again by result title
+      const existing = tdFindInDB(r.title || title, artist);
+      if (existing) { tdFoundSong = existing; tdRenderFoundSong(existing, 'local'); return; }
+      await tdImportAndRender(r.url, r.title || title);
+      return;
+    }
+  } catch { /* try direct CifraClub URL */ }
+
+  // Fallback: build CifraClub URL directly
+  const ccUrl = `https://www.cifraclub.com.br/${slug(artist)}/${slug(title)}/`;
+  await tdImportAndRender(ccUrl, title);
+}
+
+async function tdImportAndRender(url, fallbackTitle) {
+  const st = $('td-song-status');
+  try {
+    const res = await fetch(`${API}/get-cifra?url=${encodeURIComponent(url)}`);
     const data = await res.json();
     if (!data.cifra) throw new Error('no cifra');
-
     const plain = htmlParaTexto(data.cifra);
     const detectedTone  = detectKey(plain);
-    const communityTone = await buscarTomComunitario(ccUrl);
+    const communityTone = await buscarTomComunitario(url);
     const originalTone  = communityTone || detectedTone;
     const genre         = normalizeGenre(data.genero || '');
     const id            = Date.now().toString();
-    const songObj       = { id, url: ccUrl, title: data.titulo || title, content: plain, originalTone, genre };
-
-    // Save to biblioteca
-    db.biblioteca.push(songObj);
-    salvarDB();
-
+    const songObj       = { id, url, title: data.titulo || fallbackTitle, content: plain, originalTone, genre };
+    db.biblioteca.push(songObj); salvarDB();
     tdFoundSong = songObj;
     tdRenderFoundSong(songObj, 'fetched');
-
   } catch {
-    // Try our search endpoint
-    try {
-      const res2 = await fetch(`${API}/search?q=${encodeURIComponent(title + ' ' + artist)}&page=1`);
-      const data2 = await res2.json();
-      if (data2.results && data2.results.length > 0) {
-        const r = data2.results[0];
-        const res3 = await fetch(`${API}/get-cifra?url=${encodeURIComponent(r.url)}`);
-        const data3 = await res3.json();
-        if (!data3.cifra) throw new Error('no cifra');
-        const plain = htmlParaTexto(data3.cifra);
-        const originalTone = detectKey(plain);
-        const id = Date.now().toString();
-        const songObj = { id, url: r.url, title: data3.titulo || r.title || title, content: plain, originalTone, genre: null };
-        db.biblioteca.push(songObj); salvarDB();
-        tdFoundSong = songObj;
-        tdRenderFoundSong(songObj, 'fetched');
-      } else {
-        if (st) st.textContent = '';
-      }
-    } catch {
-      if (st) st.textContent = '';
-    }
+    if (st && st.textContent.includes('⟳')) st.textContent = '';
   }
+}
+
+// ── Fallback: search our server by musical key ──
+async function tdSearchServerByKey(keyName) {
+  try {
+    const res = await fetch(`${API}/search?q=${encodeURIComponent(keyName + ' tom')}&page=1`);
+    const data = await res.json();
+    if (!data.results || !data.results.length) return;
+    // Check if any result title matches something in the local DB
+    for (const r of data.results.slice(0, 3)) {
+      const local = tdFindInDB(r.title, r.artist || '');
+      if (local) { tdFoundSong = local; tdRenderFoundSong(local, 'local'); return; }
+    }
+  } catch { /* silent */ }
 }
 
 // ── Render found song ──
 function tdRenderFoundSong(song, source) {
-  const infoEl  = $('td-song-info');
-  const prevEl  = $('td-cifra-preview');
-  const actsEl  = $('td-song-actions');
-  const st      = $('td-song-status');
-
+  const infoEl = $('td-song-info');
+  const prevEl = $('td-cifra-preview');
+  const actsEl = $('td-song-actions');
+  const st     = $('td-song-status');
   if (!infoEl) return;
 
   if (st) {
-    st.textContent = source === 'local' ? '✓ na sua biblioteca' : '✓ cifra encontrada';
+    st.textContent = source === 'local' ? '✓ na biblioteca' : '✓ cifra encontrada';
     st.style.color = 'var(--accent2)';
   }
 
@@ -2276,63 +2314,46 @@ function tdRenderFoundSong(song, source) {
     <div class="td-song-title">${song.title}</div>
     <div class="td-song-meta">
       <span class="td-song-tone-badge">${tone}</span>
-      ${song.url ? `<span class="td-song-src">CifraClub</span>` : '<span class="td-song-src">Biblioteca</span>'}
+      <span class="td-song-src">${song.url ? 'CifraClub' : 'Biblioteca'}</span>
     </div>`;
 
-  // Preview first 12 lines of cifra
+  // Preview with transposition if detected key differs
   if (prevEl && song.content) {
-    const lines = song.content.split('\n').slice(0, 14).join('\n');
+    let previewContent = song.content;
+    if (tdDetectedKey && tdDetectedKey.name !== tone) {
+      const diff = notes.indexOf(tdDetectedKey.name) - notes.indexOf(tone);
+      if (diff !== 0) previewContent = transposeText(song.content, diff);
+    }
+    const lines = previewContent.split('\n').slice(0, 16).join('\n');
     prevEl.innerHTML = renderFromPlainText(lines);
     prevEl.style.display = 'block';
   }
 
-  if (actsEl) actsEl.style.display = 'flex';
-
-  // Auto-transpose if detected key differs from song key
-  if (tdDetectedKey && tdDetectedKey.name !== tone) {
-    selectToneForDetector(song, tdDetectedKey.name);
-  }
-}
-
-// Transpose the found song to the detected key and display it
-function selectToneForDetector(song, targetKey) {
-  const diff = notes.indexOf(targetKey) - notes.indexOf(song.originalTone || 'C');
-  if (diff === 0) return;
-  const transposed = transposeText(song.content, diff);
-  const prevEl = $('td-cifra-preview');
-  if (prevEl) {
-    const lines = transposed.split('\n').slice(0, 14).join('\n');
-    prevEl.innerHTML = renderFromPlainText(lines);
+  if (actsEl) {
+    actsEl.style.display = 'flex';
+    const addBtn = $('td-btn-add');
+    if (addBtn) { addBtn.textContent = '+ REPERTÓRIO'; addBtn.disabled = false; }
   }
 }
 
 // ── Add found song to active folder ──
 function tdAddToRepertoire() {
   if (!tdFoundSong) return;
-  if (!pastaAtiva) {
-    const pastas = Object.keys(db.pastas);
-    if (!pastas.length) { showToast('Crie uma pasta primeiro'); return; }
-    // Add to first available folder
-    const pasta = pastas[0];
-    if (!db.pastas[pasta].includes(tdFoundSong.id)) {
-      db.pastas[pasta].push(tdFoundSong.id);
-      salvarDB();
-    }
-    showToast(`Adicionado em "${pasta}" ✓`);
-  } else {
-    if (!db.pastas[pastaAtiva].includes(tdFoundSong.id)) {
-      db.pastas[pastaAtiva].push(tdFoundSong.id);
-      salvarDB();
-    }
-    showToast('Adicionado ao repertório ✓');
+  const pastas = Object.keys(db.pastas);
+  if (!pastas.length) { showToast('Crie uma pasta primeiro'); return; }
+  const pasta = pastaAtiva || pastas[0];
+  if (!db.pastas[pasta].includes(tdFoundSong.id)) {
+    db.pastas[pasta].push(tdFoundSong.id);
+    salvarDB();
   }
-  const btn = $('td-btn-add'); if (btn) { btn.textContent = '✓ ADICIONADO'; btn.disabled = true; }
+  const btn = $('td-btn-add');
+  if (btn) { btn.textContent = '✓ ADICIONADO'; btn.disabled = true; }
+  showToast(`Adicionado em "${pasta}" ✓`);
 }
 
-// ── Open found song as cifra ──
+// ── Open found song as cifra (marks it as opened from detector = auto-transpose enabled) ──
 function tdOpenSong() {
   if (!tdFoundSong) return;
-  // Make sure it's in some folder
   const pastas = Object.keys(db.pastas);
   if (!pastas.length) { showToast('Crie uma pasta primeiro'); return; }
   const pasta = pastaAtiva || pastas[0];
@@ -2342,7 +2363,8 @@ function tdOpenSong() {
   }
   pastaAtiva = pasta;
   const idx = db.pastas[pasta].indexOf(tdFoundSong.id);
-  openSong(idx);
+  tdOpenedFromDetector = true;
+  openSong(idx, true);
 }
 
 // ── Render key card ──
@@ -2355,9 +2377,9 @@ function tdRenderKey(k) {
   const sub      = $('td-key-sub');
 
   if (!k) {
-    if (disp) { disp.textContent = 'cante para detectar...'; disp.className = 'td-key-display'; disp.style.color = ''; }
+    if (disp) { disp.textContent = 'cante para detectar...'; disp.style.color = ''; }
     if (confWrap) confWrap.style.display = 'none';
-    if (card) { card.style.borderColor = ''; }
+    if (card) card.style.borderColor = '';
     if (sub) sub.textContent = '';
     return;
   }
@@ -2370,7 +2392,7 @@ function tdRenderKey(k) {
   if (sub) sub.textContent = k.pt + ' ' + k.mode;
 }
 
-// ── Render live notes ──
+// ── Render live notes (only called when detector screen is active) ──
 function tdRenderNotes(hist) {
   const row   = $('td-notes-row');
   const histo = $('td-notes-hist');
@@ -2382,7 +2404,6 @@ function tdRenderNotes(hist) {
     return;
   }
 
-  // Current note = last in hist
   const cur = hist[hist.length - 1];
   const col = TD_COLORS[cur];
 
@@ -2390,7 +2411,6 @@ function tdRenderNotes(hist) {
     <div class="td-note-big" style="color:${col};text-shadow:0 0 20px ${col}40">${TD_NOTES_PT[cur]}</div>
     <div class="td-note-name" style="color:${col}99">${TD_NOTES[cur]}</div>`;
 
-  // History bars
   if (histo) {
     const recent = hist.slice(-32);
     histo.innerHTML = recent.map((n, i, a) => {
