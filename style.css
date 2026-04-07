@@ -1252,3 +1252,197 @@ input#scroll-speed { flex: 1; height: 4px; accent-color: var(--accent2); cursor:
   font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);
   line-height: 1.6; letter-spacing: 0.02em;
 }
+
+/* ════════════════════════════════════════════════════
+   DETECTOR v2 — TONE PIN + AUDD + IFRAME
+════════════════════════════════════════════════════ */
+
+/* ── Tone Pin bar (always on top of detector screen) ── */
+#td-tone-pin {
+  flex-shrink: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 14px;
+  z-index: 10;
+}
+.td-pin-inner {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+}
+.td-pin-label {
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 2px;
+  color: var(--text-muted); text-transform: uppercase; flex-shrink: 0;
+}
+.td-pin-value {
+  font-family: var(--font-mono); font-size: 22px; font-weight: 900;
+  color: var(--accent); min-width: 36px; line-height: 1;
+  transition: color 0.3s;
+}
+.td-pin-mode {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);
+  flex-shrink: 0;
+}
+.td-pin-conf {
+  display: flex; align-items: center; gap: 5px; flex: 1; min-width: 0;
+}
+.td-pin-conf-bar {
+  flex: 1; height: 3px; background: var(--border2); border-radius: 99px; overflow: hidden;
+}
+.td-pin-conf-fill {
+  height: 100%; background: var(--accent); width: 0%;
+  transition: width 0.6s ease; border-radius: 99px;
+}
+.td-pin-conf-pct {
+  font-family: var(--font-mono); font-size: 9px; color: var(--text-muted); flex-shrink: 0;
+}
+/* live badge moved into pin row */
+#td-tone-pin .td-live-badge {
+  margin-left: auto; flex-shrink: 0;
+}
+
+/* ── AudD card ── */
+.td-audd-card { display: flex; flex-direction: column; gap: 10px; }
+
+.td-audd-cfg-row {
+  display: flex; align-items: center; gap: 7px;
+}
+.td-audd-key-input {
+  flex: 1; font-size: 12px !important; padding: 8px 12px !important;
+  min-width: 0;
+}
+.td-audd-link {
+  font-family: var(--font-mono); font-size: 10px; color: var(--accent);
+  text-decoration: none; flex-shrink: 0; white-space: nowrap;
+}
+
+.td-audd-rec-row {
+  display: flex; gap: 8px; align-items: stretch;
+}
+.td-audd-viz {
+  flex: 1; height: 46px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; padding: 0 8px; min-width: 0;
+}
+.td-audd-viz-idle {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+}
+.td-audd-bars {
+  display: flex; align-items: flex-end; gap: 2px; height: 100%; padding: 6px 0;
+  width: 100%;
+}
+.td-audd-bar {
+  flex: 1; background: var(--accent); border-radius: 2px 2px 0 0;
+  height: 3px; transition: height 0.07s ease; opacity: 0.75;
+}
+.td-audd-btns {
+  display: flex; flex-direction: column; gap: 5px; flex-shrink: 0;
+}
+.td-audd-rec-btn, .td-audd-id-btn {
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  border: none; border-radius: 9px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.5px; padding: 0 14px; height: 20px; flex: 1;
+  transition: opacity 0.2s, transform 0.1s;
+  white-space: nowrap;
+}
+.td-audd-rec-btn {
+  background: var(--accent); color: #000;
+}
+.td-audd-rec-btn.recording {
+  background: var(--danger); color: #fff;
+}
+.td-audd-rec-btn:active { transform: scale(0.96); }
+.td-audd-id-btn {
+  background: var(--surface2); color: var(--text-dim);
+  border: 1px solid var(--border2);
+}
+.td-audd-id-btn:not(:disabled) {
+  border-color: var(--accent2); color: var(--accent2);
+}
+.td-audd-id-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.td-audd-id-btn:not(:disabled):active { transform: scale(0.96); }
+
+/* ── AudD result ── */
+.td-audd-result {
+  border-top: 1px solid var(--border); padding-top: 10px;
+  animation: tdFadeUp 0.22s ease;
+}
+@keyframes tdFadeUp {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+.td-audd-result-top {
+  display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px;
+}
+.td-audd-result-info { flex: 1; min-width: 0; }
+.td-audd-result-title {
+  font-size: 15px; font-weight: 800; line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.td-audd-result-artist {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); margin-top: 2px;
+}
+.td-audd-result-tone {
+  display: inline-block; margin-top: 5px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  background: rgba(245,158,11,0.12); color: var(--accent);
+  border: 1px solid rgba(245,158,11,0.25); border-radius: 6px; padding: 2px 8px;
+}
+.td-audd-result-art {
+  width: 52px; height: 52px; border-radius: 9px;
+  background: var(--surface2); overflow: hidden; flex-shrink: 0;
+}
+.td-audd-result-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* ── Search link chips ── */
+.td-audd-links {
+  display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 2px;
+}
+.td-audd-chip {
+  display: inline-flex; align-items: center;
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: 99px; padding: 4px 11px;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);
+  text-decoration: none; transition: border-color 0.15s, color 0.15s;
+}
+.td-audd-chip:hover  { border-color: var(--accent); color: var(--accent); }
+.td-audd-chip.primary { border-color: var(--accent); color: var(--accent); }
+
+/* ── CifraClub iframe overlay ── */
+#td-iframe-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: var(--bg);
+  display: none; flex-direction: column;
+}
+.td-iframe-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 13px; background: var(--surface);
+  border-bottom: 1px solid var(--border); flex-shrink: 0; gap: 8px;
+}
+.td-iframe-bar-left  { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.td-iframe-bar-right { display: flex; gap: 6px; flex-shrink: 0; }
+.td-iframe-tone-pill {
+  background: var(--accent); color: #000;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  padding: 3px 10px; border-radius: 99px; flex-shrink: 0;
+}
+.td-iframe-title {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.td-iframe-sync-btn {
+  padding: 6px 12px; background: var(--accent2); color: #000;
+  border: none; border-radius: 8px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  cursor: pointer; transition: opacity 0.2s; white-space: nowrap;
+}
+.td-iframe-sync-btn:active { opacity: 0.75; }
+.td-iframe-close-btn {
+  padding: 6px 11px; background: var(--surface2); color: var(--text);
+  border: 1px solid var(--border2); border-radius: 8px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  cursor: pointer; transition: opacity 0.2s; white-space: nowrap;
+}
+.td-iframe-close-btn:active { opacity: 0.75; }
+#td-cifra-iframe {
+  flex: 1; border: none; background: #fff; width: 100%; display: block;
+}

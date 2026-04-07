@@ -274,8 +274,9 @@ function setupMusician(leaderId) {
     });
 
     conn.on('data', data => {
-      if (data.type === 'SYNC')   receiveSong(data.body, data.tone);
-      if (data.type === 'SCROLL') contentArea.scrollTop = data.pos;
+      if (data.type === 'SYNC')     receiveSong(data.body, data.tone);
+      if (data.type === 'SCROLL')   contentArea.scrollTop = data.pos;
+      if (data.type === 'DM_IFRAME' || data.type === 'DM_TONE') tdHandlePeerData(data);
     });
 
     conn.on('close', () => {
@@ -402,6 +403,8 @@ function navTomDetector() {
 
   if (proGate) proGate.style.display = 'none';
   if (tdBody)  tdBody.style.display  = 'flex';
+
+  tdAuddInit(); // initialize AudD panel
 
   if (tdOn) {
     const badge = $('td-live-badge');
@@ -1980,7 +1983,10 @@ async function activateProCode() {
 }
 
 // ════════════════════════════════════
-//  TOM DETECTOR ENGINE
+//  TOM DETECTOR ENGINE v2
+//  — live pitch/key detection (YIN + Krumhansl-Schmuckler)
+//  — manual AudD song recognition (record → identify)
+//  — CifraClub iframe with tone pin, synced via PeerJS
 // ════════════════════════════════════
 const TD_NOTES    = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const TD_NOTES_PT = ['Dó','Dó#','Ré','Ré#','Mi','Fá','Fá#','Sol','Sol#','Lá','Lá#','Si'];
@@ -2003,8 +2009,20 @@ let tdIdBusy       = false;
 let tdRecChunks    = [];
 let tdMediaRec     = null;
 let tdRecTimer     = null;
-// flag: song was opened via the Detector (auto-transpose allowed on that cifra)
 let tdOpenedFromDetector = false;
+
+// AudD manual recognition state
+let tdAuddRecording  = false;
+let tdAuddAudioCtx   = null;
+let tdAuddAnalyser   = null;
+let tdAuddStream     = null;
+let tdAuddVizRaf     = null;
+let tdAuddChunks     = [];
+let tdAuddMediaRec   = null;
+let tdAuddSong       = null; // { title, artist, tone, cifraUrl, artUrl, spotifyUrl }
+
+// iframe state
+let tdIframeUrl      = '';
 
 // ── YIN pitch detection ──
 function tdYinPitch(buf, sr) {
@@ -2097,11 +2115,13 @@ function tdStopAll() {
   if (btn)   { btn.textContent = '▶ INICIAR'; btn.classList.remove('on'); }
   if (badge) badge.classList.remove('visible');
   tdRenderKey(null); tdRenderNotes([]);
+  tdUpdateTonePin(null);
+  // Reset legacy auto-id area
   const songInfo = $('td-song-info');
-  if (songInfo) songInfo.innerHTML = '<span class="td-song-idle">Cante por alguns segundos para identificar a música</span>';
+  if (songInfo) { songInfo.innerHTML = '<span class="td-song-idle">Cante por alguns segundos para identificar a música</span>'; songInfo.style.display = 'none'; }
   const prev = $('td-cifra-preview'); if (prev) prev.style.display = 'none';
-  const acts = $('td-song-actions'); if (acts) acts.style.display = 'none';
-  const st = $('td-song-status'); if (st) st.textContent = '';
+  const acts = $('td-song-actions-legacy'); if (acts) acts.style.display = 'none';
+  const st = $('td-song-status'); if (st) { st.textContent = ''; st.style.display = 'none'; }
 }
 
 // ── Pitch detection loop — only updates notes panel on detector screen ──
@@ -2347,70 +2367,63 @@ async function tdSearchServerByKey(keyName) {
   } catch { /* silent */ }
 }
 
-// ── Render found song ──
+// ── Render found song (auto-id path — still used by live detection) ──
 function tdRenderFoundSong(song, source) {
-  const infoEl = $('td-song-info');
-  const prevEl = $('td-cifra-preview');
-  const actsEl = $('td-song-actions');
-  const st     = $('td-song-status');
-  if (!infoEl) return;
+  // Use the new AudD result card for display
+  const tone   = song.originalTone || 'C';
+  const slug   = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9\s-]/g,'').trim().replace(/\s+/g,'-');
+  const cifraUrl = song.url || `https://www.cifraclub.com.br/${slug(song.singer||'')}/${slug(song.title)}/`;
 
-  if (st) {
-    st.textContent = source === 'local' ? '✓ na biblioteca' : '✓ cifra encontrada';
-    st.style.color = 'var(--accent2)';
-  }
+  tdAuddSong = { title: song.title, artist: song.singer || '', tone, cifraUrl, artUrl: '', spotifyUrl: '' };
+  tdRenderAuddResult(tdAuddSong, source === 'local' ? '✓ na biblioteca' : '✓ cifra encontrada');
+  tdUpdateTonePin(tone);
 
-  const tone = song.originalTone || 'C';
-  infoEl.innerHTML = `
-    <div class="td-song-title">${song.title}</div>
-    <div class="td-song-meta">
-      <span class="td-song-tone-badge">${tone}</span>
-      <span class="td-song-src">${song.url ? 'CifraClub' : 'Biblioteca'}</span>
-    </div>`;
+  // Update the iframe tone pill
+  const pill = $('td-iframe-tone-pill');
+  if (pill) pill.textContent = tone;
 
-  // Preview with transposition if detected key differs
-  if (prevEl && song.content) {
-    let previewContent = song.content;
-    if (tdDetectedKey && tdDetectedKey.name !== tone) {
-      const diff = notes.indexOf(tdDetectedKey.name) - notes.indexOf(tone);
-      if (diff !== 0) previewContent = transposeText(song.content, diff);
-    }
-    const lines = previewContent.split('\n').slice(0, 16).join('\n');
-    prevEl.innerHTML = renderFromPlainText(lines);
-    prevEl.style.display = 'block';
-  }
-
-  if (actsEl) {
-    actsEl.style.display = 'flex';
-    const addBtn = $('td-btn-add');
-    if (addBtn) { addBtn.textContent = '+ REPERTÓRIO'; addBtn.disabled = false; }
-  }
+  const st = $('td-audd-status');
+  if (st) { st.textContent = source === 'local' ? '✓ na biblioteca' : '✓ identificada'; st.style.color = 'var(--accent2)'; }
 }
 
 // ── Add found song to active folder ──
 function tdAddToRepertoire() {
-  if (!tdFoundSong) return;
+  const song = tdAuddSong || tdFoundSong;
+  if (!song) return;
   const pastas = Object.keys(db.pastas);
   if (!pastas.length) { showToast('Crie uma pasta primeiro'); return; }
   const pasta = pastaAtiva || pastas[0];
-  if (!db.pastas[pasta].includes(tdFoundSong.id)) {
-    db.pastas[pasta].push(tdFoundSong.id);
-    salvarDB();
+
+  // If it's already in the db (tdFoundSong path), just add to pasta
+  if (tdFoundSong && db.biblioteca.find(b => b.id === tdFoundSong.id)) {
+    if (!db.pastas[pasta].includes(tdFoundSong.id)) {
+      db.pastas[pasta].push(tdFoundSong.id); salvarDB();
+    }
+  } else {
+    // Create a minimal entry for songs found via AudD
+    const id = Date.now().toString();
+    const obj = { id, url: song.cifraUrl || '', title: song.title, content: '', originalTone: song.tone || 'C', singer: song.artist || '' };
+    db.biblioteca.push(obj); db.pastas[pasta].push(id); salvarDB();
+    tdFoundSong = obj;
   }
-  const btn = $('td-btn-add');
-  if (btn) { btn.textContent = '✓ ADICIONADO'; btn.disabled = true; }
+
+  const btn1 = $('td-btn-add'); if (btn1) { btn1.textContent = '✓ ADICIONADO'; btn1.disabled = true; }
   showToast(`Adicionado em "${pasta}" ✓`);
 }
 
-// ── Open found song as cifra (marks it as opened from detector = auto-transpose enabled) ──
+// ── Open found song as cifra ──
 function tdOpenSong() {
+  // Prefer iframe path when we have a CifraClub URL from AudD
+  if (tdAuddSong && tdAuddSong.cifraUrl) {
+    tdOpenIframe(tdAuddSong.cifraUrl, tdAuddSong.title, tdAuddSong.tone || (tdDetectedKey ? tdDetectedKey.name : '—'));
+    return;
+  }
   if (!tdFoundSong) return;
   const pastas = Object.keys(db.pastas);
   if (!pastas.length) { showToast('Crie uma pasta primeiro'); return; }
   const pasta = pastaAtiva || pastas[0];
   if (!db.pastas[pasta].includes(tdFoundSong.id)) {
-    db.pastas[pasta].push(tdFoundSong.id);
-    salvarDB();
+    db.pastas[pasta].push(tdFoundSong.id); salvarDB();
   }
   pastaAtiva = pasta;
   const idx = db.pastas[pasta].indexOf(tdFoundSong.id);
@@ -2432,6 +2445,7 @@ function tdRenderKey(k) {
     if (confWrap) confWrap.style.display = 'none';
     if (card) card.style.borderColor = '';
     if (sub) sub.textContent = '';
+    tdUpdateTonePin(null);
     return;
   }
   const col = TD_COLORS[k.i];
@@ -2441,6 +2455,43 @@ function tdRenderKey(k) {
   if (pct)  pct.textContent = `${k.conf}%`;
   if (card) card.style.borderColor = col + '50';
   if (sub) sub.textContent = k.pt + ' ' + k.mode;
+
+  // Always update the tone pin at the top
+  tdUpdateTonePin(k);
+
+  // Broadcast to musicians (leader only)
+  if (role === 'S') {
+    connections.forEach(c => { try { if (c.open) c.send({ type: 'DM_TONE', tone: k.name, mode: k.mode }); } catch {} });
+  }
+}
+
+// ── Tone Pin — always-visible bar at top of detector screen ──
+function tdUpdateTonePin(k) {
+  const valEl  = $('td-pin-value');
+  const modeEl = $('td-pin-mode');
+  const fillEl = $('td-pin-conf-fill');
+  const pctEl  = $('td-pin-conf-pct');
+  if (!valEl) return;
+
+  if (!k) {
+    valEl.textContent = '—'; valEl.style.color = '';
+    if (modeEl) modeEl.textContent = '';
+    if (fillEl) fillEl.style.width = '0%';
+    if (pctEl)  pctEl.textContent = '—';
+    return;
+  }
+  const col = typeof k === 'string' ? 'var(--accent)' : TD_COLORS[k.i];
+  const name = typeof k === 'string' ? k : k.name;
+  const mode = typeof k === 'string' ? '' : (k.mode || '');
+  const conf = typeof k === 'string' ? 100 : (k.conf || 0);
+  valEl.textContent = name; valEl.style.color = col;
+  if (modeEl) modeEl.textContent = mode;
+  if (fillEl) fillEl.style.width = conf + '%';
+  if (pctEl)  pctEl.textContent = conf > 0 ? conf + '%' : '—';
+
+  // Also update iframe tone pill if open
+  const pill = $('td-iframe-tone-pill');
+  if (pill) pill.textContent = name;
 }
 
 // ── Render live notes (only called when detector screen is active) ──
@@ -2470,6 +2521,253 @@ function tdRenderNotes(hist) {
       const glow = i === a.length-1 ? `box-shadow:0 0 6px ${TD_COLORS[n]};` : '';
       return `<div class="td-note-bar" style="height:${h}px;background:${TD_COLORS[n]};opacity:${op};${glow}"></div>`;
     }).join('');
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  AUDD — MANUAL RECORDING + IDENTIFICATION
+// ════════════════════════════════════════════════════════
+
+function tdAuddInit() {
+  // Restore saved AudD key
+  const saved = localStorage.getItem('td_audd_key') || '';
+  const inp = $('td-audd-key-input');
+  if (inp && saved) inp.value = saved;
+
+  // Create visualizer bars
+  const barsEl = $('td-audd-bars');
+  if (barsEl && !barsEl.children.length) {
+    for (let i = 0; i < 24; i++) {
+      const b = document.createElement('div');
+      b.className = 'td-audd-bar'; barsEl.appendChild(b);
+    }
+  }
+}
+
+async function tdAuddToggleRecord() {
+  if (tdAuddRecording) { tdAuddStopRecord(); return; }
+  const btn   = $('td-audd-rec-btn');
+  const icon  = $('td-audd-rec-icon');
+  const lbl   = $('td-audd-rec-lbl');
+  const idBtn = $('td-audd-id-btn');
+  const st    = $('td-audd-status');
+  const idleEl= $('td-audd-viz-idle');
+  const barsEl= $('td-audd-bars');
+
+  if (st) { st.textContent = ''; }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    tdAuddStream = stream;
+    tdAuddAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = tdAuddAudioCtx.createMediaStreamSource(stream);
+    tdAuddAnalyser = tdAuddAudioCtx.createAnalyser();
+    tdAuddAnalyser.fftSize = 128;
+    src.connect(tdAuddAnalyser);
+    if (idleEl) idleEl.style.display = 'none';
+    if (barsEl) barsEl.style.display = 'flex';
+    tdAuddRunViz();
+
+    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+               : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
+    tdAuddChunks = [];
+    tdAuddMediaRec = new MediaRecorder(stream, { mimeType: mime });
+    tdAuddMediaRec.ondataavailable = e => { if (e.data.size > 0) tdAuddChunks.push(e.data); };
+    tdAuddMediaRec.start(200);
+
+    tdAuddRecording = true;
+    if (btn)  btn.classList.add('recording');
+    if (icon) icon.textContent = '⏹';
+    if (lbl)  lbl.textContent  = 'PARAR';
+    if (idBtn) idBtn.disabled  = true;
+    if (st)   { st.textContent = '🎤 Gravando... cante ou toque ~8s'; st.style.color = 'var(--text-dim)'; }
+  } catch (err) {
+    if (st)   { st.textContent = 'Microfone negado: ' + err.message; st.style.color = 'var(--danger)'; }
+  }
+}
+
+function tdAuddStopRecord() {
+  if (tdAuddMediaRec && tdAuddMediaRec.state !== 'inactive') { try { tdAuddMediaRec.stop(); } catch {} }
+  cancelAnimationFrame(tdAuddVizRaf);
+  try { tdAuddAudioCtx?.close(); } catch {}
+  tdAuddStream?.getTracks().forEach(t => t.stop());
+  tdAuddStream = null; tdAuddAudioCtx = null; tdAuddAnalyser = null;
+  tdAuddRecording = false;
+
+  const btn   = $('td-audd-rec-btn');
+  const icon  = $('td-audd-rec-icon');
+  const lbl   = $('td-audd-rec-lbl');
+  const idBtn = $('td-audd-id-btn');
+  const st    = $('td-audd-status');
+  const idleEl= $('td-audd-viz-idle');
+  const barsEl= $('td-audd-bars');
+
+  if (btn)  btn.classList.remove('recording');
+  if (icon) icon.textContent = '🎤';
+  if (lbl)  lbl.textContent  = 'GRAVAR';
+  if (idBtn && tdAuddChunks.length > 0) idBtn.disabled = false;
+  if (st)   { st.textContent = 'Gravação pronta — clique IDENTIFICAR'; st.style.color = 'var(--text-dim)'; }
+  if (idleEl) { idleEl.textContent = '✓ áudio gravado'; idleEl.style.display = 'block'; }
+  if (barsEl) barsEl.style.display = 'none';
+}
+
+function tdAuddRunViz() {
+  const bars = document.querySelectorAll('.td-audd-bar');
+  const data = new Uint8Array(tdAuddAnalyser ? tdAuddAnalyser.frequencyBinCount : 0);
+  function frame() {
+    if (!tdAuddAnalyser) return;
+    tdAuddAnalyser.getByteFrequencyData(data);
+    bars.forEach((bar, i) => {
+      const idx = Math.floor(i * data.length / bars.length);
+      bar.style.height = Math.max(3, (data[idx] / 255) * 34) + 'px';
+    });
+    tdAuddVizRaf = requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+async function tdAuddIdentify() {
+  if (!tdAuddChunks.length) { showToast('Grave primeiro!'); return; }
+  const idBtn = $('td-audd-id-btn');
+  const st    = $('td-audd-status');
+  if (idBtn) idBtn.disabled = true;
+  if (st)    { st.textContent = '⟳ Enviando para AudD...'; st.style.color = 'var(--text-dim)'; }
+
+  try {
+    const blob = new Blob(tdAuddChunks, { type: 'audio/webm' });
+    const form = new FormData();
+    form.append('audio', blob, 'rec.webm');
+    form.append('return', 'spotify,apple_music');
+    const key = localStorage.getItem('td_audd_key') || '';
+    if (key) form.append('api_token', key);
+
+    const res  = await fetch('https://api.audd.io/', { method: 'POST', body: form });
+    const json = await res.json();
+
+    if (json.status === 'success' && json.result) {
+      tdAuddHandleResult(json.result);
+    } else {
+      const msg = json.error?.error_message || 'Música não reconhecida.';
+      if (st) { st.textContent = msg + ' Tente gravar por mais tempo.'; st.style.color = 'var(--danger)'; }
+    }
+  } catch (err) {
+    if (st) { st.textContent = 'Erro de rede: ' + err.message; st.style.color = 'var(--danger)'; }
+  } finally {
+    if (idBtn) idBtn.disabled = false;
+  }
+}
+
+function tdAuddHandleResult(song) {
+  const title  = song.title  || 'Desconhecido';
+  const artist = song.artist || '';
+
+  // Tone: prefer live-detected key, then check local DB
+  let tone = tdDetectedKey ? tdDetectedKey.name : null;
+  if (!tone) {
+    const local = tdFindInDB(title, artist);
+    if (local) { tone = local.originalTone; tdFoundSong = local; }
+  }
+
+  const slug = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9\s-]/g,'').trim().replace(/\s+/g,'-');
+  const cifraUrl  = `https://www.cifraclub.com.br/${slug(artist)}/${slug(title)}/`;
+  const artUrl    = song.spotify?.album?.images?.[0]?.url || '';
+  const spotifyUrl= song.spotify?.external_urls?.spotify || '';
+
+  tdAuddSong = { title, artist, tone, cifraUrl, artUrl, spotifyUrl };
+  tdRenderAuddResult(tdAuddSong, '✓ Identificada!');
+  if (tone) tdUpdateTonePin(tone);
+}
+
+function tdRenderAuddResult(s, statusMsg) {
+  const resultEl = $('td-audd-result');
+  const titleEl  = $('td-audd-result-title');
+  const artistEl = $('td-audd-result-artist');
+  const toneEl   = $('td-audd-result-tone');
+  const artEl    = $('td-audd-result-art');
+  const linksEl  = $('td-audd-links');
+  const st       = $('td-audd-status');
+  const addBtn   = $('td-btn-add');
+
+  if (titleEl)  titleEl.textContent  = s.title;
+  if (artistEl) artistEl.textContent = s.artist || '';
+  if (toneEl)   toneEl.textContent   = s.tone ? 'Tom: ' + s.tone : '';
+  if (artEl)    artEl.innerHTML      = s.artUrl ? `<img src="${s.artUrl}" alt="capa">` : '';
+  if (st)       { st.textContent = statusMsg || ''; st.style.color = 'var(--accent2)'; }
+  if (addBtn)   { addBtn.textContent = '+ REPERTÓRIO'; addBtn.disabled = false; }
+
+  const q = encodeURIComponent(`${s.title} ${s.artist} cifra`);
+  if (linksEl) {
+    const chips = [
+      { label: '🔍 Google',     href: `https://www.google.com/search?q=${q}`,                          primary: false },
+      { label: '♪ CifraClub',  href: s.cifraUrl,                                                        primary: true  },
+      { label: '♫ Letras',     href: `https://www.letras.mus.br/${encodeURIComponent(s.artist + '/' + s.title)}/`, primary: false },
+    ];
+    if (s.spotifyUrl) chips.push({ label: '▶ Spotify', href: s.spotifyUrl, primary: false });
+    linksEl.innerHTML = chips.map(c =>
+      `<a class="td-audd-chip${c.primary ? ' primary' : ''}" href="${c.href}" target="_blank" rel="noopener">${c.label}</a>`
+    ).join('');
+  }
+
+  if (resultEl) resultEl.style.display = 'block';
+}
+
+// ════════════════════════════════════════════════════════
+//  CIFRACLUB IFRAME — synced via PeerJS
+// ════════════════════════════════════════════════════════
+
+function tdOpenIframe(url, title, tone) {
+  const overlay  = $('td-iframe-overlay');
+  const iframe   = $('td-cifra-iframe');
+  const titleEl  = $('td-iframe-title');
+  const pill     = $('td-iframe-tone-pill');
+  const syncBtn  = $('td-iframe-sync-btn');
+  if (!overlay || !iframe) return;
+
+  tdIframeUrl = url;
+  iframe.src            = url;
+  if (titleEl) titleEl.textContent = title || 'CifraClub';
+  if (pill)    pill.textContent    = tone  || '—';
+  // Show sync button only for the Leader
+  if (syncBtn) syncBtn.style.display = (role === 'S') ? 'inline-flex' : 'none';
+  overlay.style.display = 'flex';
+}
+
+function tdCloseIframe() {
+  const overlay = $('td-iframe-overlay');
+  const iframe  = $('td-cifra-iframe');
+  if (overlay) overlay.style.display = 'none';
+  if (iframe)  iframe.src = '';
+  tdIframeUrl = '';
+}
+
+function tdSyncIframe() {
+  if (!tdIframeUrl && tdAuddSong) tdIframeUrl = tdAuddSong.cifraUrl;
+  if (!tdIframeUrl) { showToast('Nenhuma cifra aberta'); return; }
+  const tone  = (tdDetectedKey ? tdDetectedKey.name : null) || (tdAuddSong ? tdAuddSong.tone : null) || '—';
+  const title = tdAuddSong ? tdAuddSong.title : '';
+  const artist= tdAuddSong ? tdAuddSong.artist : '';
+  connections.forEach(c => {
+    try {
+      if (c.open) c.send({ type: 'DM_IFRAME', url: tdIframeUrl, title, artist, tone });
+    } catch {}
+  });
+  const btn = $('td-iframe-sync-btn');
+  if (btn) { btn.textContent = '✓ ENVIADO'; setTimeout(() => { btn.textContent = '⇧ SYNC'; }, 2000); }
+  showToast('Cifra enviada para os músicos ✓');
+}
+
+// ── Musician side: receive iframe / tone broadcasts ──
+//    Hooked into the existing conn.on('data') in setupMusician
+function tdHandlePeerData(data) {
+  if (data.type === 'DM_IFRAME') {
+    tdOpenIframe(data.url, data.title, data.tone);
+    tdUpdateTonePin(data.tone);
+    // Update AudD result area too
+    tdAuddSong = { title: data.title, artist: data.artist || '', tone: data.tone, cifraUrl: data.url, artUrl: '', spotifyUrl: '' };
+    tdRenderAuddResult(tdAuddSong, '✓ Enviado pelo Líder');
+  }
+  if (data.type === 'DM_TONE') {
+    tdUpdateTonePin(data.tone);
   }
 }
 
