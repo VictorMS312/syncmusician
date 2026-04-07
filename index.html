@@ -200,7 +200,6 @@
     </div>
     <div class="lib-tabs">
       <button class="lib-tab active" data-tab="search" onclick="switchLibTab(this)">🔍 Buscar</button>
-      <button class="lib-tab" data-tab="link"   onclick="switchLibTab(this)">🔗 Link</button>
       <button class="lib-tab" data-tab="manual" onclick="switchLibTab(this)">✎ Manual</button>
     </div>
     <div class="lib-tab-content active" id="tab-search">
@@ -218,21 +217,63 @@
         <div class="search-empty">Digite o nome da música acima</div>
       </div>
     </div>
-    <div class="lib-tab-content" id="tab-link">
-      <div class="modal-body">
-        <input type="text" id="url-input" class="input-field" placeholder="Link direto da cifra..." style="width:100%;">
-        <button id="btn-import" class="btn-import" onclick="importLink()">IMPORTAR LINK</button>
-      </div>
-      <div class="lib-scroll">
-        <div class="lib-section-label">Biblioteca salva</div>
-        <div id="library-list"></div>
-      </div>
-    </div>
     <div class="lib-tab-content" id="tab-manual">
       <div class="modal-body">
-        <input type="text" id="manual-title-input" class="input-field" placeholder="Nome da música" style="width:100%;">
-        <textarea id="manual-cifra-input" placeholder="Cole aqui o conteúdo da cifra..."></textarea>
+        <input type="text" id="manual-title-input" class="input-field" placeholder="Nome da música" style="width:100%;margin-bottom:8px;">
+        <input type="text" id="manual-singer-input" class="input-field" placeholder="Cantor / Artista (opcional)" style="width:100%;margin-bottom:8px;">
+
+        <div class="manual-meta-row">
+          <div class="manual-meta-group">
+            <div class="manual-meta-label">Tom original</div>
+            <select id="manual-tone-select" class="input-field manual-select">
+              <option value="C">C</option>
+              <option value="C#">C#/Db</option>
+              <option value="D">D</option>
+              <option value="D#">D#/Eb</option>
+              <option value="E">E</option>
+              <option value="F">F</option>
+              <option value="F#">F#/Gb</option>
+              <option value="G">G</option>
+              <option value="G#">G#/Ab</option>
+              <option value="A">A</option>
+              <option value="A#">A#/Bb</option>
+              <option value="B">B</option>
+            </select>
+          </div>
+          <div class="manual-meta-group">
+            <div class="manual-meta-label">Gênero</div>
+            <select id="manual-genre-select" class="input-field manual-select">
+              <option value="">— Selecionar —</option>
+              <option value="gospel">✝️ Gospel</option>
+              <option value="crista">🕊️ Cristã</option>
+              <option value="sertanejo">🤠 Sertanejo</option>
+              <option value="mpb">🎶 MPB</option>
+              <option value="pop">🎤 Pop</option>
+              <option value="rock">🎸 Rock</option>
+              <option value="pagode">🥁 Pagode</option>
+              <option value="axe">🌴 Axé</option>
+              <option value="forro">🪗 Forró</option>
+              <option value="classica">🎻 Clássica</option>
+              <option value="infantil">🧸 Infantil</option>
+              <option value="outros">🎵 Outros</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="manual-note-toolbar">
+          <span class="manual-note-toolbar-label">Selecione o texto e clique para marcar:</span>
+          <button class="btn-mark-note active" id="btn-mark-chord" onclick="setMarkMode('chord')">🎸 Acorde</button>
+          <button class="btn-mark-note" id="btn-mark-lyric" onclick="setMarkMode('lyric')">🎤 Letra</button>
+        </div>
+        <textarea id="manual-cifra-input" placeholder="Cole ou digite a cifra aqui..." onmouseup="handleManualSelection()" ontouchend="handleManualSelection()" oninput="updateManualPreview()"></textarea>
+        <div id="manual-preview-label" class="manual-preview-label" style="display:none;">Pré-visualização</div>
+        <div id="manual-cifra-preview" class="manual-cifra-preview" style="display:none;"></div>
+
         <button class="btn-manual-save" onclick="saveManual()">SALVAR CIFRA</button>
+
+        <div class="manual-disclaimer">
+          ℹ️ Este app é uma ferramenta de organização. Não fornecemos banco de músicas. O usuário é responsável pelo conteúdo inserido.
+        </div>
       </div>
     </div>
   </div>

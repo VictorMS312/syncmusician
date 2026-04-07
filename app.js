@@ -1124,7 +1124,6 @@ function switchLibTab(btn) {
   document.querySelectorAll('.lib-tab-content').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
   $('tab-' + btn.dataset.tab).classList.add('active');
-  if (btn.dataset.tab === 'link') renderLibraryList();
 }
 
 // ── Busca ──
@@ -1341,13 +1340,65 @@ async function importLink() {
   finally { btn.textContent = 'IMPORTAR LINK'; btn.disabled = false; }
 }
 
+// ════════════════════════════════════
+//  MANUAL — NOTE MARKING
+// ════════════════════════════════════
+let _markMode = 'chord'; // 'chord' | 'lyric'
+
+function setMarkMode(mode) {
+  _markMode = mode;
+  $('btn-mark-chord').classList.toggle('active', mode === 'chord');
+  $('btn-mark-lyric').classList.toggle('active', mode === 'lyric');
+}
+
+function handleManualSelection() {
+  const ta = $('manual-cifra-input');
+  const start = ta.selectionStart, end = ta.selectionEnd;
+  if (start === end) return; // nothing selected
+
+  const text     = ta.value;
+  const selected = text.slice(start, end).trim();
+  if (!selected) return;
+
+  // For 'chord' mode: wrap selected word(s) so they appear on their own chord line
+  // For 'lyric' mode: just ensure selected text is treated as a plain lyric line
+  // We mark by inserting a tag comment that renderCifra respects via isChordLine detection
+  // Simplest: for 'chord', ensure the selected text ends up on its own line
+  // with nothing but chord-like tokens; for 'lyric', no change needed (already plain text).
+
+  if (_markMode === 'chord') {
+    // Pull selected text onto its own line (if not already isolated)
+    const before = text.slice(0, start);
+    const after  = text.slice(end);
+    const prefix = before.endsWith('\n') ? '' : '\n';
+    const suffix = after.startsWith('\n') ? '' : '\n';
+    ta.value = before + prefix + selected + suffix + after;
+  }
+  // lyric mode: selection stays — just deselect and show preview
+  ta.selectionStart = ta.selectionEnd = 0;
+  updateManualPreview();
+}
+
+function updateManualPreview() {
+  const preview = $('manual-cifra-preview');
+  const label   = $('manual-preview-label');
+  const text    = $('manual-cifra-input').value.trim();
+  if (!text) { preview.style.display = 'none'; label.style.display = 'none'; return; }
+  preview.style.display = 'block';
+  label.style.display   = 'block';
+  preview.innerHTML = renderFromPlainText(text);
+}
+
 function saveManual() {
   const title   = $('manual-title-input').value.trim();
   const content = $('manual-cifra-input').value.trim();
   if (!title)   { showToast('Digite o nome da música'); return; }
   if (!content) { showToast('Cole o conteúdo da cifra'); return; }
+  const originalTone = $('manual-tone-select') ? $('manual-tone-select').value : 'C';
+  const genre        = $('manual-genre-select') ? ($('manual-genre-select').value || null) : null;
+  const singer       = $('manual-singer-input') ? $('manual-singer-input').value.trim() : '';
   const id = Date.now().toString();
-  db.biblioteca.push({ id, url: '', title, content, originalTone: 'C' });
+  db.biblioteca.push({ id, url: '', title, content, originalTone, genre, singer });
   db.pastas[pastaAtiva].push(id);
   salvarDB(); closeLibrary(); openFolder(pastaAtiva);
   showToast('Música salva!');
