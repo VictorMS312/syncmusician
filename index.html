@@ -311,28 +311,13 @@
 
 <!-- ══ TOM DETECTOR SCREEN ══ -->
 <div id="screen-tomdetector" class="td-screen">
-
-  <!-- ── TONE PIN — sempre no topo ── -->
-  <div id="td-tone-pin">
-    <div class="td-pin-inner">
-      <span class="td-pin-label">TOM</span>
-      <span id="td-pin-value" class="td-pin-value">—</span>
-      <span id="td-pin-mode"  class="td-pin-mode"></span>
-      <div  class="td-pin-conf">
-        <div class="td-pin-conf-bar"><div id="td-pin-conf-fill" class="td-pin-conf-fill"></div></div>
-        <span id="td-pin-conf-pct" class="td-pin-conf-pct">—</span>
-      </div>
-      <span id="td-live-badge" class="td-live-badge">● AO VIVO</span>
-    </div>
-  </div>
-
-  <!-- ── HEADER ── -->
   <div class="td-header">
     <div class="td-header-left">
-      <div class="td-title">◈ Detector + Identificação</div>
-      <div class="td-subtitle">SYNCMUSICIAN PRO</div>
+      <div class="td-title">◈ Detector + Cifra</div>
+      <div class="td-subtitle">SYNCMUSICIAN</div>
     </div>
     <div class="td-header-right">
+      <span id="td-live-badge" class="td-live-badge">● AO VIVO</span>
       <button id="td-toggle-btn" class="td-toggle-btn" onclick="tdToggle()">▶ INICIAR</button>
     </div>
   </div>
@@ -341,7 +326,7 @@
   <div id="td-pro-gate" class="td-pro-gate" style="display:none;">
     <div class="td-pro-gate-icon">🎙️</div>
     <div class="td-pro-gate-title">Recurso Exclusivo Pro</div>
-    <div class="td-pro-gate-sub">Detecta o tom ao vivo, identifica músicas por áudio e abre a cifra do CifraClub sincronizado em todos os dispositivos.</div>
+    <div class="td-pro-gate-sub">Detecta o tom da sua voz e abre a busca por voz do Google para encontrar a cifra.</div>
     <button class="td-pro-gate-btn" onclick="navSettings()">ATIVAR PRO</button>
   </div>
 
@@ -349,9 +334,9 @@
     <!-- ERROR -->
     <div id="td-error" class="td-error" style="display:none;"></div>
 
-    <!-- 1. TOM AO VIVO -->
+    <!-- 1. TOM IDENTIFICADO -->
     <div class="td-card td-key-card" id="td-key-card">
-      <div class="td-card-label">TOM DETECTADO AO VIVO</div>
+      <div class="td-card-label">TOM IDENTIFICADO</div>
       <div class="td-key-main-row">
         <div id="td-key-display" class="td-key-display">cante para detectar...</div>
         <div class="td-key-conf-wrap" id="td-key-conf-wrap" style="display:none;">
@@ -360,72 +345,43 @@
         </div>
       </div>
       <div id="td-key-sub" class="td-key-sub"></div>
+      <!-- Note histogram / harmonic field -->
+      <div id="td-field-row" class="td-field-row" style="display:none;">
+        <span class="td-field-label">Campo harmônico provável:</span>
+        <div id="td-field-notes" class="td-field-notes"></div>
+      </div>
     </div>
 
-    <!-- 2. IDENTIFICAÇÃO POR ÁUDIO (AudD) -->
-    <div class="td-card td-audd-card" id="td-audd-card">
+    <!-- 2. BUSCA DE CIFRA -->
+    <div class="td-card td-song-card" id="td-song-card">
       <div class="td-card-label-row">
-        <div class="td-card-label">IDENTIFICAR MÚSICA</div>
-        <div id="td-audd-status" class="td-song-status"></div>
+        <div class="td-card-label">BUSCAR CIFRA</div>
+        <div id="td-song-status" class="td-song-status"></div>
       </div>
 
-      <!-- AudD token config -->
-      <div class="td-audd-cfg-row" id="td-audd-cfg-row">
-        <input id="td-audd-key-input" class="input-field td-audd-key-input"
-               type="password"
-               placeholder="Token AudD (opcional — 50 req/dia grátis)"
+      <!-- Manual search bar -->
+      <div class="td-search-row">
+        <input id="td-search-input" class="input-field td-search-input"
+               type="text" placeholder="Nome da música ou artista..."
                autocomplete="off" spellcheck="false"
-               oninput="localStorage.setItem('td_audd_key', this.value)">
-        <a class="td-audd-link" href="https://dashboard.audd.io/" target="_blank" rel="noopener">obter ↗</a>
+               onkeydown="if(event.key==='Enter') tdSearchCifra()">
+        <button class="td-search-btn" onclick="tdSearchCifra()">🔍</button>
+        <button class="td-voice-btn" id="td-voice-btn" onclick="tdVoiceSearch()" title="Busca por voz (Google)">🎤</button>
       </div>
 
-      <!-- Visualizer + controls -->
-      <div class="td-audd-rec-row">
-        <div class="td-audd-viz" id="td-audd-viz">
-          <div class="td-audd-viz-idle" id="td-audd-viz-idle">🎤 pressione GRAVAR</div>
-          <div class="td-audd-bars" id="td-audd-bars" style="display:none;">
-            <!-- bars injected by JS -->
-          </div>
-        </div>
-        <div class="td-audd-btns">
-          <button class="td-audd-rec-btn" id="td-audd-rec-btn" onclick="tdAuddToggleRecord()">
-            <span id="td-audd-rec-icon">🎤</span><span id="td-audd-rec-lbl">GRAVAR</span>
-          </button>
-          <button class="td-audd-id-btn" id="td-audd-id-btn" onclick="tdAuddIdentify()" disabled>
-            🔍 IDENTIFICAR
-          </button>
-        </div>
+      <!-- Search results list -->
+      <div id="td-song-info" class="td-song-info">
+        <span class="td-song-idle">Cante para detectar o tom, depois busque a cifra</span>
       </div>
 
-      <!-- Result -->
-      <div id="td-audd-result" class="td-audd-result" style="display:none;">
-        <div class="td-audd-result-top">
-          <div class="td-audd-result-info">
-            <div class="td-audd-result-title"  id="td-audd-result-title"></div>
-            <div class="td-audd-result-artist" id="td-audd-result-artist"></div>
-            <div class="td-audd-result-tone"   id="td-audd-result-tone"></div>
-          </div>
-          <div class="td-audd-result-art" id="td-audd-result-art"></div>
-        </div>
-        <!-- Search links -->
-        <div class="td-audd-links" id="td-audd-links"></div>
-        <!-- Actions -->
-        <div class="td-song-actions" style="margin-top:10px;">
-          <button class="td-action-btn td-action-add"  id="td-btn-add"  onclick="tdAddToRepertoire()">+ REPERTÓRIO</button>
-          <button class="td-action-btn td-action-open" id="td-btn-open" onclick="tdOpenSong()">♪ VER CIFRA</button>
-        </div>
-      </div>
-
-      <!-- Legacy auto-id result (when using the live-detection path) -->
-      <div id="td-song-info" class="td-song-info" style="display:none;">
-        <span class="td-song-idle">Cante por alguns segundos para identificar a música</span>
-      </div>
+      <!-- Cifra preview -->
       <div id="td-cifra-preview" class="td-cifra-preview" style="display:none;"></div>
-      <div id="td-song-actions-legacy" class="td-song-actions" style="display:none;">
-        <button class="td-action-btn td-action-add" id="td-btn-add-legacy" onclick="tdAddToRepertoire()">+ REPERTÓRIO</button>
-        <button class="td-action-btn td-action-open" id="td-btn-open-legacy" onclick="tdOpenSong()">ABRIR CIFRA</button>
+
+      <!-- Actions -->
+      <div id="td-song-actions" class="td-song-actions" style="display:none;">
+        <button class="td-action-btn td-action-add"  id="td-btn-add"  onclick="tdAddToRepertoire()">+ REPERTÓRIO</button>
+        <button class="td-action-btn td-action-open" id="td-btn-open" onclick="tdOpenSong()">ABRIR CIFRA</button>
       </div>
-      <div id="td-song-status" class="td-song-status" style="display:none;"></div>
     </div>
 
     <!-- 3. NOTAS AO VIVO -->
@@ -437,25 +393,7 @@
       <div id="td-notes-hist" class="td-notes-hist"></div>
     </div>
 
-  </div><!-- /td-body -->
-
-  <!-- ── IFRAME OVERLAY (CifraClub sincronizado) ── -->
-  <div id="td-iframe-overlay">
-    <div class="td-iframe-bar">
-      <div class="td-iframe-bar-left">
-        <div class="td-iframe-tone-pill" id="td-iframe-tone-pill">—</div>
-        <div class="td-iframe-title"     id="td-iframe-title">CifraClub</div>
-      </div>
-      <div class="td-iframe-bar-right">
-        <button class="td-iframe-sync-btn" id="td-iframe-sync-btn" onclick="tdSyncIframe()">⇧ SYNC</button>
-        <button class="td-iframe-close-btn" onclick="tdCloseIframe()">✕ FECHAR</button>
-      </div>
-    </div>
-    <iframe id="td-cifra-iframe" src=""
-      sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-      allowfullscreen></iframe>
   </div>
-
 </div>
 
 <div id="toast"></div>
