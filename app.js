@@ -90,21 +90,27 @@ const FLAT_TO_SHARP = {"Db":"C#","Eb":"D#","Fb":"E","Gb":"F#","Ab":"G#","Bb":"A#
 function toSharp(n) { return FLAT_TO_SHARP[n] || n; }
 
 const $ = id => document.getElementById(id);
-const contentArea    = $('content-area');
-const dynamicContent = $('dynamic-content');
-const cifraContainer = $('cifra-container');
-const editTextarea   = $('edit-textarea');
-const toneBar        = $('tone-bar');
-const controlsBar    = $('controls-bar');
-const toneGrid       = $('tone-grid');
-const scrollPanel    = $('scroll-panel');
-const medleyBubble   = $('medley-bubble');
-const medleyTitleEl  = $('medley-title');
+
+// These are assigned after DOM is ready (inside window.onload)
+let contentArea, dynamicContent, cifraContainer, editTextarea;
+let toneBar, controlsBar, toneGrid, scrollPanel, medleyBubble, medleyTitleEl;
 
 // ════════════════════════════════════
 //  INIT
 // ════════════════════════════════════
 window.onload = () => {
+  // Assign DOM refs now that the page is fully loaded
+  contentArea    = $('content-area');
+  dynamicContent = $('dynamic-content');
+  cifraContainer = $('cifra-container');
+  editTextarea   = $('edit-textarea');
+  toneBar        = $('tone-bar');
+  controlsBar    = $('controls-bar');
+  toneGrid       = $('tone-grid');
+  scrollPanel    = $('scroll-panel');
+  medleyBubble   = $('medley-bubble');
+  medleyTitleEl  = $('medley-title');
+
   const lastId = localStorage.getItem('last_leader_id');
   if (lastId) $('join-id').value = lastId;
   buildToneGrid();
@@ -114,6 +120,10 @@ window.onload = () => {
   // Começa a listar líderes disponíveis
   pollLeaders();
   leaderPollId = setInterval(pollLeaders, 8000);
+
+  // Modal backdrop listeners
+  $('modal-library').addEventListener('click', e => { if (e.target === $('modal-library')) closeLibrary(); });
+  $('modal-fix-tone').addEventListener('click', e => { if (e.target === $('modal-fix-tone')) closeFixToneModal(); });
 };
 
 // Detecta o tom da cifra
@@ -2598,9 +2608,6 @@ function showToast(msg) {
   clearTimeout(toastT);
   toastT = setTimeout(() => t.classList.remove('show'), 2500);
 }
-
-$('modal-library').addEventListener('click', e => { if (e.target === $('modal-library')) closeLibrary(); });
-$('modal-fix-tone').addEventListener('click', e => { if (e.target === $('modal-fix-tone')) closeFixToneModal(); });
 
 // ════════════════════════════════════════════════════════
 //  CHORD POPUP ENGINE
