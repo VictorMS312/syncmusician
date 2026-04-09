@@ -121,20 +121,9 @@ window.onload = () => {
   pollLeaders();
   leaderPollId = setInterval(pollLeaders, 8000);
 
-// Modal backdrop listeners — com guard para evitar crash se elemento ausente
-const modalLib = $('modal-library');
-if (modalLib) {
-  modalLib.addEventListener('click', e => {
-    if (e.target === modalLib) closeLibrary();
-  });
-}
-
-const modalTone = $('modal-fix-tone');
-if (modalTone) {
-  modalTone.addEventListener('click', e => {
-    if (e.target === modalTone) closeFixToneModal();
-  });
-}
+  // Modal backdrop listeners
+  $('modal-library').addEventListener('click', e => { if (e.target === $('modal-library')) closeLibrary(); });
+  $('modal-fix-tone').addEventListener('click', e => { if (e.target === $('modal-fix-tone')) closeFixToneModal(); });
 };
 
 // Detecta o tom da cifra
@@ -2036,12 +2025,6 @@ let tdOpenedFromDetector = false;
 //  • Manual text search + CifraClub link results
 //  • Removed AudD dependency entirely
 // ════════════════════════════════════
-const TD_NOTES    = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-const TD_NOTES_PT = ['Dó','Dó#','Ré','Ré#','Mi','Fá','Fá#','Sol','Sol#','Lá','Lá#','Si'];
-const TD_COLORS   = ['#FF6B6B','#FF8E53','#FFD43B','#74C0FC','#38D9A9','#63E6BE','#4DABF7','#748FFC','#DA77F2','#F783AC','#FF87A4','#FFA94D'];
-const TD_MAJOR_P  = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
-const TD_MINOR_P  = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
-
 // Harmonic fields (major scales) — for display
 const TD_MAJOR_SCALES = {
   'C' :['C','D','E','F','G','A','B'],  'G' :['G','A','B','C','D','E','F#'],
