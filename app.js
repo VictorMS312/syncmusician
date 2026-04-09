@@ -121,9 +121,20 @@ window.onload = () => {
   pollLeaders();
   leaderPollId = setInterval(pollLeaders, 8000);
 
-  // Modal backdrop listeners
-  $('modal-library').addEventListener('click', e => { if (e.target === $('modal-library')) closeLibrary(); });
-  $('modal-fix-tone').addEventListener('click', e => { if (e.target === $('modal-fix-tone')) closeFixToneModal(); });
+// Modal backdrop listeners — com guard para evitar crash se elemento ausente
+const modalLib = $('modal-library');
+if (modalLib) {
+  modalLib.addEventListener('click', e => {
+    if (e.target === modalLib) closeLibrary();
+  });
+}
+
+const modalTone = $('modal-fix-tone');
+if (modalTone) {
+  modalTone.addEventListener('click', e => {
+    if (e.target === modalTone) closeFixToneModal();
+  });
+}
 };
 
 // Detecta o tom da cifra
