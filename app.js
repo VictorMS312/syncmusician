@@ -23,7 +23,7 @@ const PRO_CODE_PREFIX = 'SYNC-';
 let authUser  = JSON.parse(localStorage.getItem('syncmusician_auth'))  || null;
 let proStatus = JSON.parse(localStorage.getItem('syncmusician_pro'))   || { active: false, code: '' };
 function isAdmin() { return authUser && authUser.email === ADMIN_EMAIL; }
-function isPro()   { return isAdmin() || proStatus.active; }
+function isPro()   { return true; } // tudo liberado
 function saveAuth()   { localStorage.setItem('syncmusician_auth',  JSON.stringify(authUser));  }
 function saveProStatus() { localStorage.setItem('syncmusician_pro', JSON.stringify(proStatus)); }
 
@@ -90,27 +90,21 @@ const FLAT_TO_SHARP = {"Db":"C#","Eb":"D#","Fb":"E","Gb":"F#","Ab":"G#","Bb":"A#
 function toSharp(n) { return FLAT_TO_SHARP[n] || n; }
 
 const $ = id => document.getElementById(id);
-
-// These are assigned after DOM is ready (inside window.onload)
-let contentArea, dynamicContent, cifraContainer, editTextarea;
-let toneBar, controlsBar, toneGrid, scrollPanel, medleyBubble, medleyTitleEl;
+const contentArea    = $('content-area');
+const dynamicContent = $('dynamic-content');
+const cifraContainer = $('cifra-container');
+const editTextarea   = $('edit-textarea');
+const toneBar        = $('tone-bar');
+const controlsBar    = $('controls-bar');
+const toneGrid       = $('tone-grid');
+const scrollPanel    = $('scroll-panel');
+const medleyBubble   = $('medley-bubble');
+const medleyTitleEl  = $('medley-title');
 
 // ════════════════════════════════════
 //  INIT
 // ════════════════════════════════════
 window.onload = () => {
-  // Assign DOM refs now that the page is fully loaded
-  contentArea    = $('content-area');
-  dynamicContent = $('dynamic-content');
-  cifraContainer = $('cifra-container');
-  editTextarea   = $('edit-textarea');
-  toneBar        = $('tone-bar');
-  controlsBar    = $('controls-bar');
-  toneGrid       = $('tone-grid');
-  scrollPanel    = $('scroll-panel');
-  medleyBubble   = $('medley-bubble');
-  medleyTitleEl  = $('medley-title');
-
   const lastId = localStorage.getItem('last_leader_id');
   if (lastId) $('join-id').value = lastId;
   buildToneGrid();
@@ -120,10 +114,6 @@ window.onload = () => {
   // Começa a listar líderes disponíveis
   pollLeaders();
   leaderPollId = setInterval(pollLeaders, 8000);
-
-  // Modal backdrop listeners
-  $('modal-library').addEventListener('click', e => { if (e.target === $('modal-library')) closeLibrary(); });
-  $('modal-fix-tone').addEventListener('click', e => { if (e.target === $('modal-fix-tone')) closeFixToneModal(); });
 };
 
 // Detecta o tom da cifra
@@ -399,28 +389,14 @@ function navTomDetector() {
   showDynamic(); hideAllPanels(); hideMedley(); stopMedleyWatcher();
   setView('tomdetector');
 
-  const proGate = $('td-pro-gate');
-  const tdBody  = $('td-body');
+  const tdBody = $('td-body');
+  if (tdBody) tdBody.style.display = 'flex';
 
-  if (!isPro()) {
-    if (proGate) proGate.style.display = 'flex';
-    if (tdBody)  tdBody.style.display  = 'none';
-    const btn = $('td-toggle-btn');
-    if (btn) { btn.textContent = '▶ INICIAR'; btn.classList.remove('on'); }
-    return;
-  }
-
-  if (proGate) proGate.style.display = 'none';
-  if (tdBody)  tdBody.style.display  = 'flex';
-
-  if (tdOn) {
+  if (tunerOn) {
     const badge = $('td-live-badge');
     if (badge) badge.classList.add('visible');
     const btn = $('td-toggle-btn');
     if (btn) { btn.textContent = '⏹ PARAR'; btn.classList.add('on'); }
-    // Re-render current state
-    if (tdDetectedKey) tdRenderKey(tdDetectedKey);
-    tdRenderNotes(tdHist);
   }
 }
 
@@ -1134,6 +1110,7 @@ function switchLibTab(btn) {
   document.querySelectorAll('.lib-tab-content').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
   $('tab-' + btn.dataset.tab).classList.add('active');
+  if (btn.dataset.tab === 'link') renderLibraryList();
 }
 
 // ── Busca ──
@@ -1192,23 +1169,54 @@ async function buscarMusica(loadMore) {
 
   if (!loadMore) {
     searchCurrentPage = 1;
-    area.innerHTML = '<div class="search-empty">Buscando online...</div>';
+    area.innerHTML = '';
+    // Always show local results first
+    renderLocalSearchResults(query, area);
+    if (area.querySelector('.search-result-card')) {
+      // If we have local results, show "also searching online..." note
+      const note = document.createElement('div');
+      note.className = 'lib-section-label';
+      note.style.cssText = 'padding-top:14px;border-top:1px solid var(--border);margin-top:6px;';
+      note.textContent = '🌐 Buscando online...';
+      note.id = 'online-searching-note';
+      area.appendChild(note);
+    } else {
+      area.innerHTML = '<div class="search-empty">Buscando...</div>';
+    }
   }
 
+  // Slug helper
+  const slug = s => (s||'').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9\s-]/g,'').trim().replace(/\s+/g,'-');
+
   try {
-    const res  = await fetch(`https://syncmusician.onrender.com/search?q=${encodeURIComponent(query)}&page=${searchCurrentPage}`);
+    const res  = await fetch(`${API}/search?q=${encodeURIComponent(query)}&page=${searchCurrentPage}`);
     const data = await res.json();
 
-    if (!loadMore) area.innerHTML = '';
+    // Remove loading note
+    const noteEl = $('online-searching-note');
+    if (noteEl) noteEl.remove();
 
-    // Insere resultados locais no topo (só na primeira página)
-    if (!loadMore) renderLocalSearchResults(query, area);
+    if (!loadMore) {
+      // Clear placeholder but keep local section
+      const localSection = $('local-results-section');
+      area.innerHTML = '';
+      if (localSection) area.appendChild(localSection);
+    }
 
     if (!data.results || data.results.length === 0) {
-      if (!area.querySelector('.search-result-card')) {
-        area.innerHTML += '<div class="search-empty">Nenhum resultado encontrado.</div>';
-      }
+      // Try CifraClub direct URL search
+      await buscarNoCifraClub(query, area);
       return;
+    }
+
+    if (!loadMore) {
+      const divider = document.createElement('div');
+      divider.className = 'lib-section-label';
+      divider.style.cssText = 'padding-top:14px;border-top:1px solid var(--border);margin-top:6px;';
+      divider.textContent = '🌐 Online';
+      area.appendChild(divider);
     }
 
     data.results.forEach(r => {
@@ -1223,7 +1231,6 @@ async function buscarMusica(loadMore) {
       area.appendChild(card);
     });
 
-    // Botão "Ver mais"
     const existing = area.querySelector('.btn-load-more');
     if (existing) existing.remove();
 
@@ -1236,14 +1243,56 @@ async function buscarMusica(loadMore) {
     }
 
   } catch {
-    showToast('Erro na busca. Tente novamente.');
-    if (!loadMore) {
-      area.innerHTML = '';
-      renderLocalSearchResults(query, area);
-      area.innerHTML += '<div class="search-empty" style="margin-top:10px;">Sem conexão — mostrando resultados locais.</div>';
-    }
+    const noteEl = $('online-searching-note');
+    if (noteEl) noteEl.remove();
+    // Fallback: try CifraClub direct
+    await buscarNoCifraClub(query, area);
   } finally {
     btn.disabled = false; btn.textContent = 'BUSCAR';
+  }
+}
+
+// Tenta buscar no CifraClub com padrão de URL: /cantor/musica/
+async function buscarNoCifraClub(query, area) {
+  const slug = s => (s||'').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9\s-]/g,'').trim().replace(/\s+/g,'-');
+
+  // Tenta identificar cantor e música separados por " - "
+  let artist = '', title = query;
+  if (query.includes(' - ')) {
+    const parts = query.split(' - ');
+    artist = parts[0].trim();
+    title  = parts.slice(1).join(' - ').trim();
+  }
+
+  const note = document.createElement('div');
+  note.className = 'search-empty';
+  note.textContent = artist
+    ? `Buscando "${title}" de "${artist}"...`
+    : 'Nenhum resultado. Tente: Cantor - Música';
+  area.appendChild(note);
+
+  if (!artist) return;
+
+  const url = `https://www.cifraclub.com.br/${slug(artist)}/${slug(title)}/`;
+  try {
+    const res = await fetch(`${API}/get-cifra?url=${encodeURIComponent(url)}`);
+    const data = await res.json();
+    if (!data.cifra) throw new Error('sem conteúdo');
+
+    note.remove();
+    const card = document.createElement('div');
+    card.className = 'search-result-card';
+    card.innerHTML = `
+      <div class="search-result-info">
+        <div class="search-result-title">${data.titulo || title}</div>
+        <div class="search-result-artist">${artist}</div>
+      </div>
+      <button class="btn-search-add" onclick="importarDaBusca('${esc(url)}', '${esc(data.titulo || title)}', this)">ADD</button>`;
+    area.appendChild(card);
+  } catch {
+    note.textContent = 'Não encontrado. Tente o link direto na aba 🔗 Link.';
   }
 }
 
@@ -1586,42 +1635,40 @@ function renderSettingsPage() {
       <div class="spage-section">Funcionalidades</div>
       <div class="spage-row">
         <div>
-          <div class="spage-label">Sugestão de Medley ${!isPro() ? '<span class="feature-pro-tag">PRO</span>' : ''}</div>
+          <div class="spage-label">Sugestão de Medley</div>
           <div class="spage-sub">Sugere a próxima música compatível no tom</div>
         </div>
-        ${isPro() ? `
         <label class="toggle">
           <input type="checkbox" id="sp-medley" ${settings.medleyEnabled ? 'checked' : ''}
                  onchange="toggleSetting('medleyEnabled', this)">
           <span class="toggle-slider"></span>
-        </label>` : `
-        <label class="toggle toggle-locked" title="Recurso Pro">
-          <input type="checkbox" disabled>
-          <span class="toggle-slider"></span>
-        </label>`}
+        </label>
       </div>
       <div class="spage-row">
         <div>
-          <div class="spage-label">Editor de cifras ${!isPro() ? '<span class="feature-pro-tag">PRO</span>' : ''}</div>
+          <div class="spage-label">Editor de cifras</div>
           <div class="spage-sub">Permite editar o texto da cifra manualmente</div>
         </div>
-        ${isPro() ? `
         <label class="toggle">
           <input type="checkbox" id="sp-edit" ${settings.editEnabled ? 'checked' : ''}
                  onchange="toggleSetting('editEnabled', this)">
           <span class="toggle-slider"></span>
-        </label>` : `
-        <label class="toggle toggle-locked" title="Recurso Pro">
-          <input type="checkbox" disabled>
-          <span class="toggle-slider"></span>
-        </label>`}
+        </label>
       </div>
       <div class="spage-row">
         <div>
-          <div class="spage-label">Detector de Tom ${!isPro() ? '<span class="feature-pro-tag">PRO</span>' : ''}</div>
-          <div class="spage-sub">Detecta tom e afinação em tempo real pelo microfone</div>
+          <div class="spage-label">Afinador</div>
+          <div class="spage-sub">Afina seu instrumento em tempo real pelo microfone</div>
         </div>
         <button class="btn-spage" onclick="navTomDetector()">ABRIR</button>
+      </div>
+
+      <div class="spage-section">Sugestões</div>
+      <div class="spage-row col">
+        <div class="spage-label">Enviar sugestão de melhoria</div>
+        <div class="spage-sub">Sua ideia vai direto para nossa equipe</div>
+        <textarea id="sp-suggestion" placeholder="Descreva sua sugestão aqui..." style="margin-top:10px;width:100%;min-height:90px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-family:var(--font-mono);font-size:12px;padding:10px;resize:vertical;box-sizing:border-box;"></textarea>
+        <button class="btn-spage" style="margin-top:8px;align-self:flex-end;" onclick="enviarSugestao()">ENVIAR</button>
       </div>
 
     </div>
@@ -1990,565 +2037,232 @@ async function activateProCode() {
 }
 
 // ════════════════════════════════════
-//  TOM DETECTOR ENGINE v2
-//  Changes vs v1:
-//  • YIN + bandpass filter (80–1000 Hz) for vocal stability
-//  • 3–5s note histogram → harmonic field probability
-//  • Google voice search integration (launches native search)
-//  • Manual text search + CifraClub link results
-//  • Removed AudD dependency entirely
+//  AFINADOR ENGINE
 // ════════════════════════════════════
-// Harmonic fields (major scales) — for display
-const TD_MAJOR_SCALES = {
-  'C' :['C','D','E','F','G','A','B'],  'G' :['G','A','B','C','D','E','F#'],
-  'D' :['D','E','F#','G','A','B','C#'],'A' :['A','B','C#','D','E','F#','G#'],
-  'E' :['E','F#','G#','A','B','C#','D#'],'B':['B','C#','D#','E','F#','G#','A#'],
-  'F#':['F#','G#','A#','B','C#','D#','E#'],'F':['F','G','A','A#','C','D','E'],
-  'A#':['A#','C','D','D#','F','G','A'], 'D#':['D#','F','G','G#','A#','C','D'],
-  'G#':['G#','A#','C','C#','D#','F','G'],'C#':['C#','D#','F','F#','G#','A#','C'],
-};
+const TUNER_NOTES  = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const TUNER_OCT    = ['C2','C#2','D2','D#2','E2','F2','F#2','G2','G#2','A2','A#2','B2',
+                      'C3','C#3','D3','D#3','E3','F3','F#3','G3','G#3','A3','A#3','B3',
+                      'C4','C#4','D4','D#4','E4','F4','F#4','G4','G#4','A4','A#4','B4',
+                      'C5','C#5','D5','D#5','E5','F5','F#5','G5','G#5','A5','A#5','B5'];
 
-let tdOn           = false;
-let tdAudioCtx     = null;
-let tdAnalyser     = null;
-let tdBpFilter     = null;   // bandpass filter node
-let tdStream       = null;
-let tdRaf          = null;
-let tdKeyInt       = null;
-let tdHistBuf      = [];     // long buffer (~5s) for key detection
-let tdHist         = [];     // short buffer for note display
-let tdDetectedKey  = null;
-let tdFoundSong    = null;
-let tdIdBusy       = false;
-let tdOpenedFromDetector = false;
-// Voice recognition
-let tdVoiceRec     = null;
+let tunerOn        = false;
+let tunerAudioCtx  = null;
+let tunerAnalyser  = null;
+let tunerStream    = null;
+let tunerRaf       = null;
+let tunerRef       = 440;  // Hz para A4
+let tunerTargetHz  = null; // Hz da corda selecionada (null = auto)
+let tunerTargetName= null;
 
-// ── YIN pitch detection with vocal bandpass (80–1000 Hz) ──
-// The AudioContext filter already limits range; YIN adds sub-sample accuracy.
-function tdYinPitch(buf, sr) {
+// YIN pitch detection (same algorithm as before)
+function tunerYin(buf, sr) {
   const W = Math.min(buf.length >> 1, 2048);
-  // tauMin/tauMax maps to 80–1000 Hz range (vocal fundamental)
-  const tauMax = Math.ceil(sr / 80),  tauMin = Math.floor(sr / 1000);
+  const tauMax = Math.ceil(sr / 60), tauMin = Math.floor(sr / 1800);
   const d = new Float32Array(tauMax + 1);
   for (let tau = 1; tau <= tauMax; tau++) {
     let s = 0;
     for (let i = 0; i < W; i++) { const v = buf[i] - buf[i + tau]; s += v * v; }
     d[tau] = s;
   }
-  // Cumulative mean normalized difference
   const c = new Float32Array(tauMax + 1); c[0] = 1; let sum = 0;
   for (let tau = 1; tau <= tauMax; tau++) {
     sum += d[tau]; c[tau] = d[tau] * tau / (sum || 1e-10);
   }
-  // Find first dip below threshold 0.10 (tighter than 0.12 to reduce octave errors)
   let best = -1;
   for (let tau = tauMin; tau < tauMax; tau++) {
     if (c[tau] < 0.10) { while (tau + 1 < tauMax && c[tau + 1] < c[tau]) tau++; best = tau; break; }
   }
   if (best < 0) return -1;
-  // Parabolic interpolation for sub-sample precision
   if (best > 0 && best < tauMax) {
-    const a = c[best - 1], b = c[best], cc = c[best + 1];
-    const den = 2 * (2 * b - a - cc); if (Math.abs(den) > 1e-6) best += (a - cc) / den;
+    const a = c[best - 1], b2 = c[best], cc = c[best + 1];
+    const den = 2 * (2 * b2 - a - cc); if (Math.abs(den) > 1e-6) best += (a - cc) / den;
   }
   return sr / best;
 }
 
-function tdFreqToNote(f) {
-  // Strict vocal range: 80–1000 Hz (covers soprano down to bass voice)
-  if (f < 80 || f > 1000) return null;
-  const n = 12 * Math.log2(f / 440) + 69;
-  const r = Math.round(n), idx = ((r % 12) + 12) % 12;
-  return { idx, name: TD_NOTES[idx], pt: TD_NOTES_PT[idx], oct: Math.floor(r / 12) - 1, f };
+// Freq → nearest note + cents offset
+function tunerFreqToNote(f, ref) {
+  if (f < 55 || f > 2200) return null;
+  const semis  = 12 * Math.log2(f / ref) + 69; // MIDI note number (A4=69)
+  const rounded= Math.round(semis);
+  const cents  = Math.round((semis - rounded) * 100);
+  const noteIdx= ((rounded % 12) + 12) % 12;
+  const oct    = Math.floor(rounded / 12) - 1;
+  return { name: TUNER_NOTES[noteIdx] + oct, note: TUNER_NOTES[noteIdx], oct, cents, f };
 }
 
-// ── Krumhansl-Schmuckler key detection ──
-function tdDetectKeyFromHist(hist) {
-  if (hist.length < 16) return null; // need more samples for stability
-  const cnt = new Array(12).fill(0); hist.forEach(n => cnt[n]++);
-  const corr = (a, b) => {
-    const ma = a.reduce((s, v) => s + v, 0) / 12, mb = b.reduce((s, v) => s + v, 0) / 12;
-    let num = 0, da = 0, db = 0;
-    for (let i = 0; i < 12; i++) { num += (a[i]-ma)*(b[i]-mb); da += (a[i]-ma)**2; db += (b[i]-mb)**2; }
-    return num / (Math.sqrt(da * db) + 1e-10);
-  };
-  let best = { score: -Infinity, i: 0, mode: 'maior' };
-  for (let i = 0; i < 12; i++) {
-    const rot = Array.from({ length: 12 }, (_, j) => cnt[(j + i) % 12]);
-    const maj = corr(rot, TD_MAJOR_P), min = corr(rot, TD_MINOR_P);
-    if (maj > best.score) best = { score: maj, i, mode: 'maior' };
-    if (min > best.score) best = { score: min, i, mode: 'menor' };
-  }
-  // Build top-5 note ranking from histogram
-  const ranked = cnt.map((c, i) => ({ i, c })).sort((a, b) => b.c - a.c);
-  return {
-    name: TD_NOTES[best.i], pt: TD_NOTES_PT[best.i], mode: best.mode,
-    conf: Math.round(((best.score + 1) / 2) * 100), i: best.i,
-    topNotes: ranked.slice(0, 5).filter(n => n.c > 0).map(n => TD_NOTES[n.i]),
-  };
+// RMS → dBFS
+function tunerRMS(buf) {
+  let sum = 0; for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+  const rms = Math.sqrt(sum / buf.length);
+  return rms < 1e-10 ? -96 : 20 * Math.log10(rms);
 }
 
-// ── Start / Stop ──
 async function tdToggle() {
-  if (!isPro()) { showToast('✦ Recurso exclusivo Pro'); return; }
-  if (tdOn) { tdStopAll(); return; }
+  if (tunerOn) { tunerStop(); return; }
   const errEl = $('td-error'); if (errEl) errEl.style.display = 'none';
   try {
-    const s = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    tunerStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
     });
-    tdStream = s;
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
-    tdAudioCtx = ac;
-
-    // ── Bandpass filter: 80 Hz – 1000 Hz to isolate vocal fundamental ──
-    const bp = ac.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = 300;  // centre of vocal range
-    bp.Q.value = 0.5;          // wide enough to cover full vocal span
-    tdBpFilter = bp;
-
-    const an = ac.createAnalyser(); an.fftSize = 4096; an.smoothingTimeConstant = 0.4;
-    tdAnalyser = an;
-    ac.createMediaStreamSource(s).connect(bp);
-    bp.connect(an);
-
-    tdHistBuf = []; tdHist = []; tdFoundSong = null; tdDetectedKey = null;
-    tdOn = true;
+    tunerAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    tunerAnalyser = tunerAudioCtx.createAnalyser();
+    tunerAnalyser.fftSize = 8192;
+    tunerAnalyser.smoothingTimeConstant = 0.2;
+    tunerAudioCtx.createMediaStreamSource(tunerStream).connect(tunerAnalyser);
+    tunerOn = true;
     const btn = $('td-toggle-btn'), badge = $('td-live-badge');
     if (btn)   { btn.textContent = '⏹ PARAR'; btn.classList.add('on'); }
     if (badge) badge.classList.add('visible');
-    tdDetectLoop();
-    tdStartKeyInterval();
-    // Auto-trigger voice search after 4s of listening
-    setTimeout(() => { if (tdOn) tdVoiceSearch(); }, 4000);
+    tunerLoop();
   } catch {
     const errEl = $('td-error');
     if (errEl) { errEl.textContent = 'Permissão de microfone negada. Verifique as configurações.'; errEl.style.display = 'block'; }
   }
 }
 
-function tdStopAll() {
-  tdOn = false;
-  cancelAnimationFrame(tdRaf); clearInterval(tdKeyInt);
-  if (tdVoiceRec) { try { tdVoiceRec.abort(); } catch {} tdVoiceRec = null; }
-  try { tdAudioCtx?.close(); } catch {}
-  tdStream?.getTracks().forEach(t => t.stop());
-  tdStream = null; tdAudioCtx = null; tdAnalyser = null; tdBpFilter = null;
-  tdDetectedKey = null; tdHistBuf = []; tdHist = [];
+function tunerStop() {
+  tunerOn = false;
+  cancelAnimationFrame(tunerRaf);
+  try { tunerAudioCtx?.close(); } catch {}
+  tunerStream?.getTracks().forEach(t => t.stop());
+  tunerStream = null; tunerAudioCtx = null; tunerAnalyser = null;
   const btn = $('td-toggle-btn'), badge = $('td-live-badge');
   if (btn)   { btn.textContent = '▶ INICIAR'; btn.classList.remove('on'); }
   if (badge) badge.classList.remove('visible');
-  tdRenderKey(null); tdRenderNotes([]);
-  const fieldRow = $('td-field-row'); if (fieldRow) fieldRow.style.display = 'none';
-  const songInfo = $('td-song-info');
-  if (songInfo) songInfo.innerHTML = '<span class="td-song-idle">Cante para detectar o tom, depois busque a cifra</span>';
-  const prev = $('td-cifra-preview'); if (prev) prev.style.display = 'none';
-  const acts = $('td-song-actions'); if (acts) acts.style.display = 'none';
-  const st = $('td-song-status'); if (st) st.textContent = '';
+  tunerRenderIdle();
 }
 
-// ── Pitch detection loop ──
-function tdDetectLoop() {
-  const fb = new Float32Array(tdAnalyser.fftSize);
+function tunerLoop() {
+  const buf = new Float32Array(tunerAnalyser.fftSize);
   function frame() {
-    if (!tdOn) return;
-    tdAnalyser.getFloatTimeDomainData(fb);
-    const f = tdYinPitch(fb, tdAudioCtx.sampleRate);
-    if (f > 0) {
-      const n = tdFreqToNote(f);
-      if (n) {
-        tdHistBuf = [...tdHistBuf.slice(-400), n.idx]; // ~5s at 80fps
-        tdHist    = [...tdHist.slice(-40), n.idx];
-        if ($('screen-tomdetector')?.classList.contains('active')) {
-          tdRenderNotes(tdHist);
-        }
-      }
+    if (!tunerOn) return;
+    tunerAnalyser.getFloatTimeDomainData(buf);
+    const db  = tunerRMS(buf);
+    const f   = tunerYin(buf, tunerAudioCtx.sampleRate);
+    tunerRenderDB(db);
+    if (f > 0 && db > -50) {
+      const n = tunerFreqToNote(f, tunerRef);
+      if (n) tunerRenderNote(n);
+    } else if (db <= -50) {
+      tunerRenderIdle();
     }
-    tdRaf = requestAnimationFrame(frame);
+    tunerRaf = requestAnimationFrame(frame);
   }
-  tdRaf = requestAnimationFrame(frame);
+  tunerRaf = requestAnimationFrame(frame);
 }
 
-// ── Key detection interval (every 1.5s, needs ≥16 samples for stability) ──
-function tdStartKeyInterval() {
-  clearInterval(tdKeyInt);
-  tdKeyInt = setInterval(() => {
-    if (!tdOn || tdHistBuf.length < 16) return;
-    const k = tdDetectKeyFromHist(tdHistBuf.slice(-240)); // last ~3s
-    if (!k) return;
-    tdDetectedKey = k;
-    if ($('screen-tomdetector')?.classList.contains('active')) {
-      tdRenderKey(k);
-      tdRenderHarmonicField(k);
-    }
-    if (tdOpenedFromDetector && musicaAtivaId && k.conf >= 55 && k.name !== currentNote) {
-      selectTone(k.name);
-    }
-  }, 1500);
-}
+function tunerRenderNote(n) {
+  const noteName = $('tuner-note-name');
+  const noteFreq = $('tuner-note-freq');
+  const needle   = $('tuner-needle');
+  const centsEl  = $('tuner-cents');
+  const statusEl = $('tuner-status-text');
+  const statusBar= $('tuner-status-bar');
+  const card     = $('tuner-note-card');
 
-// ════════════════════════════════════════════════════════
-//  GOOGLE VOICE SEARCH INTEGRATION
-// ════════════════════════════════════════════════════════
+  // If a target is locked, show cents relative to target
+  let cents = n.cents;
+  let displayName = n.name;
 
-function tdVoiceSearch() {
-  const btn = $('td-voice-btn');
-  const st  = $('td-song-status');
+  if (tunerTargetHz) {
+    const semisToTarget = 12 * Math.log2(n.f / tunerTargetHz);
+    cents = Math.round(semisToTarget * 100);
+    displayName = tunerTargetName;
+  }
 
-  // Try Web Speech API first (works on Chrome/Android)
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (noteName) noteName.textContent = displayName;
+  if (noteFreq) noteFreq.textContent = n.f.toFixed(1) + ' Hz';
+  if (centsEl)  centsEl.textContent  = (cents >= 0 ? '+' : '') + cents;
 
-  if (SpeechRecognition) {
-    // Native speech recognition — intercepts the voice, builds a search query
-    if (tdVoiceRec) { try { tdVoiceRec.abort(); } catch {} }
-    const rec = new SpeechRecognition();
-    rec.lang = 'pt-BR';
-    rec.continuous = false;
-    rec.interimResults = false;
-    rec.maxAlternatives = 3;
-    tdVoiceRec = rec;
+  // Needle: map -50..+50 cents → 0..100%
+  const pct = Math.max(0, Math.min(100, ((cents + 50) / 100) * 100));
+  if (needle) needle.style.left = pct + '%';
 
-    if (btn) btn.classList.add('listening');
-    if (st)  { st.textContent = '🎤 Diga o nome da música...'; st.style.color = 'var(--accent)'; }
-
-    rec.onresult = (e) => {
-      const transcript = e.results[0][0].transcript.trim();
-      if (btn) btn.classList.remove('listening');
-      if (st)  { st.textContent = `🔍 "${transcript}"`; st.style.color = 'var(--text-dim)'; }
-      // Fill the search box and trigger search
-      const inp = $('td-search-input');
-      if (inp) inp.value = transcript;
-      tdSearchCifra(transcript);
-    };
-
-    rec.onerror = (e) => {
-      if (btn) btn.classList.remove('listening');
-      if (e.error === 'not-allowed') {
-        if (st) { st.textContent = 'Microfone negado — digite o nome manualmente'; st.style.color = 'var(--danger)'; }
-      } else {
-        // Fallback to Google search URL
-        tdOpenGoogleVoiceSearch();
-      }
-    };
-
-    rec.onend = () => { if (btn) btn.classList.remove('listening'); };
-    rec.start();
-
+  // Color + status
+  const absCents = Math.abs(cents);
+  let color, status;
+  if (absCents <= 5) {
+    color = '#22c55e'; status = '✓ Afinado';
+    if (statusBar) statusBar.style.background = 'rgba(34,197,94,0.12)';
+    if (card) card.style.borderColor = '#22c55e50';
+  } else if (absCents <= 20) {
+    color = '#f97316'; status = cents < 0 ? '▼ Afine mais (subindo)' : '▲ Afine menos (descendo)';
+    if (statusBar) statusBar.style.background = 'rgba(249,115,22,0.10)';
+    if (card) card.style.borderColor = '#f9731650';
   } else {
-    // Fallback: open Google search with voice in new tab
-    tdOpenGoogleVoiceSearch();
-  }
-}
-
-// Opens Google's own voice search for music — user gets native experience
-// and can paste the result back, or we read what's in the search input
-function tdOpenGoogleVoiceSearch() {
-  const st = $('td-song-status');
-  // Google's search with voice tab — deep-links to the music search
-  const url = 'https://www.google.com/search?q=cifra&tbm=isch#q=cifra+';
-  // Better: open Google with voice trigger for songs
-  const searchUrl = 'https://www.google.com/webhp?#q=cifra+m%C3%BAsica&source=lnms';
-  // Most direct approach: Google voice search
-  window.open('https://www.google.com/search?q=cifra+m%C3%BAsica&voice=1', '_blank');
-  if (st) { st.textContent = 'Busca aberta no Google — cole o nome aqui ao voltar'; st.style.color = 'var(--text-dim)'; }
-}
-
-// ════════════════════════════════════════════════════════
-//  CIFRA SEARCH — builds results with CifraClub links
-// ════════════════════════════════════════════════════════
-
-async function tdSearchCifra(query) {
-  const inp = $('td-search-input');
-  const q   = (query || (inp ? inp.value.trim() : '')).trim();
-  if (!q) { showToast('Digite o nome da música'); return; }
-
-  const st      = $('td-song-status');
-  const infoEl  = $('td-song-info');
-  const preEl   = $('td-cifra-preview');
-  const actsEl  = $('td-song-actions');
-
-  if (st)     { st.textContent = '⟳ buscando...'; st.style.color = 'var(--text-dim)'; }
-  if (infoEl) { infoEl.innerHTML = '<span class="td-song-idle">⟳ procurando cifra...</span>'; }
-  if (preEl)  preEl.style.display = 'none';
-  if (actsEl) actsEl.style.display = 'none';
-
-  // 1. Check local DB first
-  const localMatch = tdFindInDB(q, '');
-  if (localMatch) {
-    tdFoundSong = localMatch;
-    tdRenderFoundSong(localMatch, 'local');
-    return;
+    color = '#ef4444'; status = cents < 0 ? '⚠ Muito baixo — cuidado!' : '⚠ Muito alto — risco de arrebentar!';
+    if (statusBar) statusBar.style.background = 'rgba(239,68,68,0.10)';
+    if (card) card.style.borderColor = '#ef444450';
   }
 
-  // 2. Try backend search endpoint
-  try {
-    const res  = await fetch(`${API}/search?q=${encodeURIComponent(q)}&page=1`);
-    const data = await res.json();
-    if (data.results && data.results.length > 0) {
-      tdRenderSearchResults(data.results, q);
-      if (st) { st.textContent = `${data.results.length} cifras encontradas`; st.style.color = 'var(--accent2)'; }
-      return;
-    }
-  } catch { /* server offline — fall through */ }
-
-  // 3. Build direct links (Google + CifraClub + Letras)
-  tdRenderDirectLinks(q);
-  if (st) { st.textContent = 'Links diretos gerados'; st.style.color = 'var(--accent2)'; }
+  if (noteName) noteName.style.color = color;
+  if (centsEl)  centsEl.style.color  = color;
+  if (needle)   needle.style.background = color;
+  if (statusEl) { statusEl.textContent = status; statusEl.style.color = color; }
 }
 
-// Render a list of search results with CifraClub links
-function tdRenderSearchResults(results, query) {
-  const infoEl = $('td-song-info');
-  if (!infoEl) return;
-  const tone = tdDetectedKey ? ` · Tom: <b style="color:var(--accent)">${tdDetectedKey.name}</b>` : '';
-  let html = `<div class="td-results-header">Resultados para "<b>${query}</b>"${tone}</div>`;
-  results.slice(0, 6).forEach(r => {
-    const t = r.title || r.nome || '?';
-    const a = r.artist || r.artista || '';
-    const url = r.url || '';
-    html += `
-      <div class="td-result-item" onclick="tdSelectResult('${encodeURIComponent(url)}','${encodeURIComponent(t)}','${encodeURIComponent(a)}')">
-        <div class="td-result-info">
-          <div class="td-result-title">${t}</div>
-          <div class="td-result-artist">${a}</div>
-        </div>
-        <div class="td-result-source">CifraClub ›</div>
-      </div>`;
+function tunerRenderIdle() {
+  const noteName = $('tuner-note-name');
+  const noteFreq = $('tuner-note-freq');
+  const needle   = $('tuner-needle');
+  const centsEl  = $('tuner-cents');
+  const statusEl = $('tuner-status-text');
+  const statusBar= $('tuner-status-bar');
+  const card     = $('tuner-note-card');
+  if (noteName) { noteName.textContent = '—'; noteName.style.color = ''; }
+  if (noteFreq) noteFreq.textContent = '— Hz';
+  if (needle)   { needle.style.left = '50%'; needle.style.background = 'var(--text-dim)'; }
+  if (centsEl)  { centsEl.textContent = '—'; centsEl.style.color = ''; }
+  if (statusEl) { statusEl.textContent = tunerOn ? 'Toque uma nota...' : 'Toque INICIAR e afine seu instrumento'; statusEl.style.color = ''; }
+  if (statusBar) statusBar.style.background = '';
+  if (card) card.style.borderColor = '';
+}
+
+function tunerRenderDB(db) {
+  const fill = $('tuner-db-fill');
+  const val  = $('tuner-db-val');
+  if (!fill || !val) return;
+  const pct = Math.max(0, Math.min(100, ((db + 60) / 60) * 100));
+  fill.style.width = pct + '%';
+  val.textContent  = Math.round(db) + ' dB';
+  // Color the bar: green safe, orange loud, red danger
+  fill.style.background = db > -6 ? '#ef4444' : db > -18 ? '#f97316' : '#22c55e';
+}
+
+function tunerChangeRef(delta) {
+  tunerRef = Math.max(420, Math.min(460, tunerRef + delta));
+  const el = $('tuner-ref-val');
+  if (el) el.textContent = tunerRef + ' Hz';
+}
+
+function tunerSetNote(name, hz) {
+  tunerTargetHz   = hz;
+  tunerTargetName = name;
+  document.querySelectorAll('.tuner-preset-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent.startsWith(name));
   });
-  infoEl.innerHTML = html;
+  showToast('Afinando para ' + name);
+  if (!tunerOn) tunerRenderIdle();
 }
 
-// Render direct links when backend is unavailable
-function tdRenderDirectLinks(query) {
-  const infoEl = $('td-song-info');
-  if (!infoEl) return;
-  const q    = encodeURIComponent(query);
-  const qCC  = encodeURIComponent(query + ' cifra');
-  const tone = tdDetectedKey ? `Tom detectado: <b style="color:var(--accent)">${tdDetectedKey.name} ${tdDetectedKey.mode}</b><br>` : '';
-  infoEl.innerHTML = `
-    <div class="td-direct-links">
-      ${tone}
-      <div class="td-direct-label">Abrir busca em:</div>
-      <a class="td-link-chip primary" href="https://www.cifraclub.com.br/busca/?q=${q}" target="_blank" rel="noopener">♪ CifraClub</a>
-      <a class="td-link-chip" href="https://www.google.com/search?q=${qCC}" target="_blank" rel="noopener">🔍 Google</a>
-      <a class="td-link-chip" href="https://www.letras.mus.br/pesquisar.php?q=${q}" target="_blank" rel="noopener">♫ Letras.mus</a>
-      <a class="td-link-chip" href="https://www.cifraclub.com.br/busca/?q=${q}&type=tabs" target="_blank" rel="noopener">🎸 Tabs CC</a>
-    </div>`;
+// Stubs kept for any remaining references to old detector
+let tdOn = false;
+function tdStopAll() { tunerStop(); }
+let tdOpenedFromDetector = false;
+
+function enviarSugestao() {
+  const el = $('sp-suggestion');
+  const text = el ? el.value.trim() : '';
+  if (!text) { showToast('Escreva sua sugestão primeiro'); return; }
+  // Abre o cliente de e-mail padrão
+  const subject = encodeURIComponent('Sugestão SyncMusician');
+  const body    = encodeURIComponent(text);
+  window.location.href = `mailto:contatowpsite@gmail.com?subject=${subject}&body=${body}`;
+  if (el) el.value = '';
+  showToast('Abrindo e-mail... obrigado! 🎵');
 }
 
-async function tdSelectResult(encodedUrl, encodedTitle, encodedArtist) {
-  const url    = decodeURIComponent(encodedUrl);
-  const title  = decodeURIComponent(encodedTitle);
-  const artist = decodeURIComponent(encodedArtist);
-  const st     = $('td-song-status');
-  if (st) { st.textContent = '⟳ carregando cifra...'; st.style.color = 'var(--text-dim)'; }
-
-  try {
-    const res  = await fetch(`${API}/get-cifra?url=${encodeURIComponent(url)}`);
-    const data = await res.json();
-    if (!data.cifra) throw new Error('no cifra');
-    const plain        = htmlParaTexto(data.cifra);
-    const detectedTone = detectKey(plain);
-    const communityTone= await buscarTomComunitario(url);
-    const originalTone = communityTone || detectedTone;
-    const genre        = normalizeGenre(data.genero || '');
-    const id           = Date.now().toString();
-    const songObj      = { id, url, title: data.titulo || title, singer: artist, content: plain, originalTone, genre };
-    db.biblioteca.push(songObj); salvarDB();
-    tdFoundSong = songObj;
-    tdRenderFoundSong(songObj, 'fetched');
-  } catch {
-    // Server couldn't fetch cifra — just show direct link
-    const infoEl = $('td-song-info');
-    if (infoEl) {
-      const tone = tdDetectedKey ? `Tom: <b style="color:var(--accent)">${tdDetectedKey.name}</b> · ` : '';
-      infoEl.innerHTML = `
-        <div class="td-direct-links">
-          ${tone}<a class="td-link-chip primary" href="${url}" target="_blank" rel="noopener">♪ Abrir no CifraClub ›</a>
-        </div>`;
-    }
-    if (st) { st.textContent = 'Aberto no navegador'; st.style.color = 'var(--accent2)'; }
-  }
-}
-
-// ── DB helpers ──
-function tdSearchLocalDBByNotePattern() {
-  if (!tdDetectedKey || db.biblioteca.length === 0) return null;
-  const key  = tdDetectedKey.name;
-  const conf = tdDetectedKey.conf;
-  if (conf < 45) return null;
-  const hist   = tdHistBuf.slice(-240);
-  const cnt    = new Array(12).fill(0); hist.forEach(n => cnt[n]++);
-  const total  = hist.length || 1;
-  const chroma = cnt.map(c => c / total);
-  let best = null, bestScore = 0;
-  for (const m of db.biblioteca) {
-    if (!m.content) continue;
-    const mChords = [];
-    m.content.split('\n').forEach(line => {
-      if (!isChordLine(line)) return;
-      (line.match(/[A-G][#b]?/g) || []).forEach(ch => {
-        const norm = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[ch] || ch;
-        const idx  = notes.indexOf(norm); if (idx !== -1) mChords.push(idx);
-      });
-    });
-    if (!mChords.length) continue;
-    const mCnt = new Array(12).fill(0); mChords.forEach(n => mCnt[n]++);
-    const mChroma = mCnt.map(c => c / mChords.length);
-    let dot = 0, na = 0, nb = 0;
-    for (let i = 0; i < 12; i++) { dot += chroma[i]*mChroma[i]; na += chroma[i]**2; nb += mChroma[i]**2; }
-    const sim = dot / (Math.sqrt(na)*Math.sqrt(nb)+1e-10);
-    const bonus = ((m.originalTone||'C') === key || m.savedTone === key) ? 0.25 : 0;
-    const score = sim + bonus;
-    if (score > bestScore && score > 0.55) { bestScore = score; best = m; }
-  }
-  return best;
-}
-
-function tdFindInDB(title, artist) {
-  if (!title) return null;
-  const t = title.toLowerCase().trim();
-  const a = (artist || '').toLowerCase().trim();
-  return db.biblioteca.find(m => {
-    const mt = m.title.toLowerCase();
-    return mt === t || mt.includes(t) || t.includes(mt) ||
-      (a && (mt.includes(a.split(' ')[0]) || a.includes(mt.split(' ')[0])));
-  }) || null;
-}
-
-// ── Render found song (from local DB or server fetch) ──
-function tdRenderFoundSong(song, source) {
-  const infoEl = $('td-song-info');
-  const prevEl = $('td-cifra-preview');
-  const actsEl = $('td-song-actions');
-  const st     = $('td-song-status');
-  if (!infoEl) return;
-
-  if (st) {
-    st.textContent = source === 'local' ? '✓ na biblioteca' : '✓ cifra encontrada';
-    st.style.color = 'var(--accent2)';
-  }
-
-  const tone = song.originalTone || 'C';
-  infoEl.innerHTML = `
-    <div class="td-song-title">${song.title}</div>
-    <div class="td-song-meta">
-      <span class="td-song-tone-badge">${tone}</span>
-      <span class="td-song-src">${song.url ? 'CifraClub' : 'Biblioteca'}</span>
-    </div>`;
-
-  if (prevEl && song.content) {
-    let previewContent = song.content;
-    if (tdDetectedKey && tdDetectedKey.name !== tone) {
-      const diff = notes.indexOf(tdDetectedKey.name) - notes.indexOf(tone);
-      if (diff !== 0) previewContent = transposeText(song.content, diff);
-    }
-    prevEl.innerHTML = renderFromPlainText(previewContent.split('\n').slice(0, 16).join('\n'));
-    prevEl.style.display = 'block';
-  }
-
-  if (actsEl) {
-    actsEl.style.display = 'flex';
-    const addBtn = $('td-btn-add');
-    if (addBtn) { addBtn.textContent = '+ REPERTÓRIO'; addBtn.disabled = false; }
-  }
-}
-
-// ── Add to repertoire ──
-function tdAddToRepertoire() {
-  if (!tdFoundSong) return;
-  const pastas = Object.keys(db.pastas);
-  if (!pastas.length) { showToast('Crie uma pasta primeiro'); return; }
-  const pasta = pastaAtiva || pastas[0];
-  if (!db.pastas[pasta].includes(tdFoundSong.id)) { db.pastas[pasta].push(tdFoundSong.id); salvarDB(); }
-  const btn = $('td-btn-add');
-  if (btn) { btn.textContent = '✓ ADICIONADO'; btn.disabled = true; }
-  showToast(`Adicionado em "${pasta}" ✓`);
-}
-
-// ── Open song ──
-function tdOpenSong() {
-  if (!tdFoundSong) return;
-  const pastas = Object.keys(db.pastas);
-  if (!pastas.length) { showToast('Crie uma pasta primeiro'); return; }
-  const pasta = pastaAtiva || pastas[0];
-  if (!db.pastas[pasta].includes(tdFoundSong.id)) { db.pastas[pasta].push(tdFoundSong.id); salvarDB(); }
-  pastaAtiva = pasta;
-  const idx = db.pastas[pasta].indexOf(tdFoundSong.id);
-  tdOpenedFromDetector = true;
-  openSong(idx, true);
-}
-
-// ── Render key card ──
-function tdRenderKey(k) {
-  const disp     = $('td-key-display');
-  const confWrap = $('td-key-conf-wrap');
-  const fill     = $('td-key-conf-fill');
-  const pct      = $('td-key-conf-pct');
-  const card     = $('td-key-card');
-  const sub      = $('td-key-sub');
-
-  if (!k) {
-    if (disp) { disp.textContent = 'cante para detectar...'; disp.style.color = ''; }
-    if (confWrap) confWrap.style.display = 'none';
-    if (card) card.style.borderColor = '';
-    if (sub) sub.textContent = '';
-    return;
-  }
-  const col = TD_COLORS[k.i];
-  if (disp) { disp.textContent = `${k.name} ${k.mode}`; disp.style.color = col; }
-  if (confWrap) confWrap.style.display = 'flex';
-  if (fill) fill.style.width = `${k.conf}%`;
-  if (pct)  pct.textContent = `${k.conf}%`;
-  if (card) card.style.borderColor = col + '50';
-  if (sub)  sub.textContent = k.pt + ' ' + k.mode;
-}
-
-// ── Render harmonic field (note histogram) ──
-function tdRenderHarmonicField(k) {
-  const row  = $('td-field-row');
-  const notesEl = $('td-field-notes');
-  if (!row || !notesEl || !k) return;
-  const scale = TD_MAJOR_SCALES[k.name] || [];
-  const top   = k.topNotes || [];
-  notesEl.innerHTML = top.map(n => {
-    const inScale = scale.includes(n) || scale.includes(n.replace('#','b'));
-    return `<span class="td-field-note ${inScale ? 'in-scale' : ''}">${n}</span>`;
-  }).join('');
-  row.style.display = 'flex';
-}
-
-// ── Render live notes ──
-function tdRenderNotes(hist) {
-  const row   = $('td-notes-row');
-  const histo = $('td-notes-hist');
-  if (!row) return;
-  if (!hist || hist.length === 0) {
-    row.innerHTML = '<span class="td-notes-idle">aguardando áudio...</span>';
-    if (histo) histo.innerHTML = '';
-    return;
-  }
-  const cur = hist[hist.length - 1];
-  const col = TD_COLORS[cur];
-  row.innerHTML = `
-    <div class="td-note-big" style="color:${col};text-shadow:0 0 20px ${col}40">${TD_NOTES_PT[cur]}</div>
-    <div class="td-note-name" style="color:${col}99">${TD_NOTES[cur]}</div>`;
-  if (histo) {
-    const recent = hist.slice(-32);
-    histo.innerHTML = recent.map((n, i, a) => {
-      const h  = 10 + (n % 3) * 5;
-      const op = 0.1 + (i / a.length) * 0.9;
-      const glow = i === a.length - 1 ? `box-shadow:0 0 6px ${TD_COLORS[n]};` : '';
-      return `<div class="td-note-bar" style="height:${h}px;background:${TD_COLORS[n]};opacity:${op};${glow}"></div>`;
-    }).join('');
-  }
-}
-
-// ════════════════════════════════════
-//  UTILS
-// ════════════════════════════════════
 function goHome() { navConnect(); }
 function salvarDB() { localStorage.setItem('syncmusician_v8', JSON.stringify(db)); }
 function esc(s)     { return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
@@ -2575,6 +2289,9 @@ function showToast(msg) {
   clearTimeout(toastT);
   toastT = setTimeout(() => t.classList.remove('show'), 2500);
 }
+
+$('modal-library').addEventListener('click', e => { if (e.target === $('modal-library')) closeLibrary(); });
+$('modal-fix-tone').addEventListener('click', e => { if (e.target === $('modal-fix-tone')) closeFixToneModal(); });
 
 // ════════════════════════════════════════════════════════
 //  CHORD POPUP ENGINE

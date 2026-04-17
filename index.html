@@ -133,7 +133,7 @@
         <i class="ph-fill ph-microphone icon-filled"></i>
         <span class="icon-emoji">🎙️</span>
       </span>
-      <span class="nav-label">Detector</span>
+      <span class="nav-label">Afinador</span>
     </button>
 
     <button class="nav-tab" data-tab="home" onclick="navHome()">
@@ -200,6 +200,7 @@
     </div>
     <div class="lib-tabs">
       <button class="lib-tab active" data-tab="search" onclick="switchLibTab(this)">🔍 Buscar</button>
+      <button class="lib-tab" data-tab="link"   onclick="switchLibTab(this)">🔗 Link</button>
       <button class="lib-tab" data-tab="manual" onclick="switchLibTab(this)">✎ Manual</button>
     </div>
     <div class="lib-tab-content active" id="tab-search">
@@ -215,6 +216,16 @@
       </div>
       <div class="lib-scroll" id="search-results-area">
         <div class="search-empty">Digite o nome da música acima</div>
+      </div>
+    </div>
+    <div class="lib-tab-content" id="tab-link">
+      <div class="modal-body">
+        <input type="text" id="url-input" class="input-field" placeholder="Cole o link da cifra aqui..." style="width:100%;">
+        <button id="btn-import" class="btn-import" onclick="importLink()">IMPORTAR</button>
+      </div>
+      <div class="lib-scroll">
+        <div class="lib-section-label">Biblioteca salva</div>
+        <div id="library-list"></div>
       </div>
     </div>
     <div class="lib-tab-content" id="tab-manual">
@@ -309,11 +320,11 @@
   </div>
 </div>
 
-<!-- ══ TOM DETECTOR SCREEN ══ -->
+<!-- ══ AFINADOR SCREEN ══ -->
 <div id="screen-tomdetector" class="td-screen">
   <div class="td-header">
     <div class="td-header-left">
-      <div class="td-title">◈ Detector + Cifra</div>
+      <div class="td-title">◈ Afinador</div>
       <div class="td-subtitle">SYNCMUSICIAN</div>
     </div>
     <div class="td-header-right">
@@ -322,77 +333,71 @@
     </div>
   </div>
 
-  <!-- PRO GATE -->
-  <div id="td-pro-gate" class="td-pro-gate" style="display:none;">
-    <div class="td-pro-gate-icon">🎙️</div>
-    <div class="td-pro-gate-title">Recurso Exclusivo Pro</div>
-    <div class="td-pro-gate-sub">Detecta o tom da sua voz e abre a busca por voz do Google para encontrar a cifra.</div>
-    <button class="td-pro-gate-btn" onclick="navSettings()">ATIVAR PRO</button>
-  </div>
-
-  <div id="td-body" class="td-body">
-    <!-- ERROR -->
+  <div id="td-body" class="td-body tuner-body">
     <div id="td-error" class="td-error" style="display:none;"></div>
 
-    <!-- 1. TOM IDENTIFICADO -->
-    <div class="td-card td-key-card" id="td-key-card">
-      <div class="td-card-label">TOM IDENTIFICADO</div>
-      <div class="td-key-main-row">
-        <div id="td-key-display" class="td-key-display">cante para detectar...</div>
-        <div class="td-key-conf-wrap" id="td-key-conf-wrap" style="display:none;">
-          <div class="td-key-conf-bar"><div id="td-key-conf-fill" class="td-key-conf-fill"></div></div>
-          <span id="td-key-conf-pct" class="td-key-conf-pct">0%</span>
-        </div>
+    <!-- Note display -->
+    <div class="tuner-note-card" id="tuner-note-card">
+      <div class="tuner-note-name" id="tuner-note-name">—</div>
+      <div class="tuner-note-freq" id="tuner-note-freq">— Hz</div>
+    </div>
+
+    <!-- Meter -->
+    <div class="tuner-meter-wrap">
+      <div class="tuner-meter-track">
+        <div class="tuner-meter-zone red-left"></div>
+        <div class="tuner-meter-zone orange-left"></div>
+        <div class="tuner-meter-zone green-center"></div>
+        <div class="tuner-meter-zone orange-right"></div>
+        <div class="tuner-meter-zone red-right"></div>
+        <div class="tuner-meter-needle" id="tuner-needle"></div>
+        <div class="tuner-meter-center-mark"></div>
       </div>
-      <div id="td-key-sub" class="td-key-sub"></div>
-      <!-- Note histogram / harmonic field -->
-      <div id="td-field-row" class="td-field-row" style="display:none;">
-        <span class="td-field-label">Campo harmônico provável:</span>
-        <div id="td-field-notes" class="td-field-notes"></div>
+      <div class="tuner-meter-labels">
+        <span>−50</span><span>−25</span><span>0</span><span>+25</span><span>+50</span>
       </div>
     </div>
 
-    <!-- 2. BUSCA DE CIFRA -->
-    <div class="td-card td-song-card" id="td-song-card">
-      <div class="td-card-label-row">
-        <div class="td-card-label">BUSCAR CIFRA</div>
-        <div id="td-song-status" class="td-song-status"></div>
-      </div>
-
-      <!-- Manual search bar -->
-      <div class="td-search-row">
-        <input id="td-search-input" class="input-field td-search-input"
-               type="text" placeholder="Nome da música ou artista..."
-               autocomplete="off" spellcheck="false"
-               onkeydown="if(event.key==='Enter') tdSearchCifra()">
-        <button class="td-search-btn" onclick="tdSearchCifra()">🔍</button>
-        <button class="td-voice-btn" id="td-voice-btn" onclick="tdVoiceSearch()" title="Busca por voz (Google)">🎤</button>
-      </div>
-
-      <!-- Search results list -->
-      <div id="td-song-info" class="td-song-info">
-        <span class="td-song-idle">Cante para detectar o tom, depois busque a cifra</span>
-      </div>
-
-      <!-- Cifra preview -->
-      <div id="td-cifra-preview" class="td-cifra-preview" style="display:none;"></div>
-
-      <!-- Actions -->
-      <div id="td-song-actions" class="td-song-actions" style="display:none;">
-        <button class="td-action-btn td-action-add"  id="td-btn-add"  onclick="tdAddToRepertoire()">+ REPERTÓRIO</button>
-        <button class="td-action-btn td-action-open" id="td-btn-open" onclick="tdOpenSong()">ABRIR CIFRA</button>
-      </div>
+    <!-- Cents display -->
+    <div class="tuner-cents-row">
+      <div class="tuner-cents-val" id="tuner-cents">—</div>
+      <div class="tuner-cents-label">cents</div>
     </div>
 
-    <!-- 3. NOTAS AO VIVO -->
-    <div class="td-card td-notes-card">
-      <div class="td-card-label">NOTAS DETECTADAS</div>
-      <div id="td-notes-row" class="td-notes-row">
-        <span class="td-notes-idle">aguardando áudio...</span>
-      </div>
-      <div id="td-notes-hist" class="td-notes-hist"></div>
+    <!-- Status bar -->
+    <div class="tuner-status-bar" id="tuner-status-bar">
+      <div class="tuner-status-text" id="tuner-status-text">Toque INICIAR e afine seu instrumento</div>
     </div>
 
+    <!-- dB meter -->
+    <div class="tuner-db-row">
+      <div class="tuner-db-label">dB</div>
+      <div class="tuner-db-track">
+        <div class="tuner-db-fill" id="tuner-db-fill"></div>
+      </div>
+      <div class="tuner-db-val" id="tuner-db-val">—</div>
+    </div>
+
+    <!-- Reference -->
+    <div class="tuner-ref-row">
+      <span class="tuner-ref-label">Referência A4:</span>
+      <button class="tuner-ref-btn" onclick="tunerChangeRef(-5)">−</button>
+      <span class="tuner-ref-val" id="tuner-ref-val">440 Hz</span>
+      <button class="tuner-ref-btn" onclick="tunerChangeRef(+5)">+</button>
+    </div>
+
+    <!-- String presets -->
+    <div class="tuner-presets">
+      <div class="tuner-preset-label">Afinação rápida</div>
+      <div class="tuner-preset-row">
+        <button class="tuner-preset-btn" onclick="tunerSetNote('E4',329.63)">E4 🎸①</button>
+        <button class="tuner-preset-btn" onclick="tunerSetNote('B3',246.94)">B3 🎸②</button>
+        <button class="tuner-preset-btn" onclick="tunerSetNote('G3',196.00)">G3 🎸③</button>
+        <button class="tuner-preset-btn" onclick="tunerSetNote('D3',146.83)">D3 🎸④</button>
+        <button class="tuner-preset-btn" onclick="tunerSetNote('A2',110.00)">A2 🎸⑤</button>
+        <button class="tuner-preset-btn" onclick="tunerSetNote('E2',82.41)">E2 🎸⑥</button>
+      </div>
+    </div>
   </div>
 </div>
 
